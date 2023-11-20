@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = 
 
-CXX_INCLUDES = -I/user/2/gennusoa/CGPU-Project/GPU_HoughEdgeProject/libs
+CXX_INCLUDES = -I/user/2/.base/gennusoa/home/CGPU-Project/GPU_HoughEdgeProject/libs
 
 CXX_FLAGS = -std=gnu++11
 

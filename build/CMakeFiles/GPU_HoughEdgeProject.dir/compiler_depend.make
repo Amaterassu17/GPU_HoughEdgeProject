@@ -194,6 +194,26 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
   /usr/include/c++/11/bits/ostream.tcc \
   /usr/include/c++/11/istream \
   /usr/include/c++/11/bits/istream.tcc \
+  ../libs/stb_image.h \
+  /usr/include/c++/11/stdlib.h \
+  /usr/include/string.h \
+  /usr/include/strings.h \
+  /usr/lib/gcc/x86_64-linux-gnu/11/include/limits.h \
+  /usr/lib/gcc/x86_64-linux-gnu/11/include/syslimits.h \
+  /usr/include/limits.h \
+  /usr/include/x86_64-linux-gnu/bits/posix1_lim.h \
+  /usr/include/x86_64-linux-gnu/bits/local_lim.h \
+  /usr/include/linux/limits.h \
+  /usr/include/x86_64-linux-gnu/bits/posix2_lim.h \
+  /usr/include/x86_64-linux-gnu/bits/xopen_lim.h \
+  /usr/include/x86_64-linux-gnu/bits/uio_lim.h \
+  /usr/include/c++/11/math.h \
+  /usr/include/assert.h \
+  /usr/lib/gcc/x86_64-linux-gnu/11/include/emmintrin.h \
+  /usr/lib/gcc/x86_64-linux-gnu/11/include/xmmintrin.h \
+  /usr/lib/gcc/x86_64-linux-gnu/11/include/mmintrin.h \
+  /usr/lib/gcc/x86_64-linux-gnu/11/include/mm_malloc.h \
+  ../libs/stb_image_write.h \
   ../libs/matrix_utils.h \
   /usr/include/c++/11/fstream \
   /usr/include/c++/11/bits/codecvt.h \
@@ -239,6 +259,26 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/x86_64-linux-gnu/c++/11/bits/basic_file.h:
 
 ../libs/matrix_utils.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/mmintrin.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/xmmintrin.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/emmintrin.h:
+
+/usr/include/x86_64-linux-gnu/bits/uio_lim.h:
+
+/usr/include/x86_64-linux-gnu/bits/posix1_lim.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/syslimits.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/limits.h:
+
+/usr/include/string.h:
+
+/usr/include/c++/11/stdlib.h:
+
+/usr/include/limits.h:
 
 /usr/include/c++/11/bits/istream.tcc:
 
@@ -286,9 +326,13 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 
 /usr/include/errno.h:
 
+../libs/stb_image_write.h:
+
 /usr/include/c++/11/cerrno:
 
 /usr/include/stdio.h:
+
+../libs/stb_image.h:
 
 /usr/include/c++/11/bits/stl_construct.h:
 
@@ -338,6 +382,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 
 /usr/include/c++/11/bits/random.tcc:
 
+/usr/lib/gcc/x86_64-linux-gnu/11/include/mm_malloc.h:
+
 /usr/include/sched.h:
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/gthr-default.h:
@@ -355,6 +401,10 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/c++/11/bits/locale_classes.tcc:
 
 /usr/include/x86_64-linux-gnu/bits/fp-fast.h:
+
+/usr/include/x86_64-linux-gnu/bits/posix2_lim.h:
+
+/usr/include/linux/limits.h:
 
 /usr/include/stdint.h:
 
@@ -377,6 +427,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/x86_64-linux-gnu/bits/types/clockid_t.h:
 
 /usr/include/x86_64-linux-gnu/bits/math-vector.h:
+
+/usr/include/x86_64-linux-gnu/bits/xopen_lim.h:
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/c++locale.h:
 
@@ -409,6 +461,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/x86_64-linux-gnu/bits/types/struct_timespec.h:
 
 /usr/include/c++/11/bits/std_abs.h:
+
+/usr/include/assert.h:
 
 /usr/include/c++/11/cstdlib:
 
@@ -465,6 +519,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/features.h:
 
 /usr/include/c++/11/ext/numeric_traits.h:
+
+/usr/include/x86_64-linux-gnu/bits/local_lim.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h:
 
@@ -540,6 +596,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 
 /usr/include/stdlib.h:
 
+/usr/include/c++/11/math.h:
+
 /usr/include/x86_64-linux-gnu/bits/waitflags.h:
 
 /usr/include/c++/11/bits/localefwd.h:
@@ -571,6 +629,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
 
 /usr/include/c++/11/numeric:
+
+/usr/include/strings.h:
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/stddef.h:
 

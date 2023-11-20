@@ -1,4 +1,4 @@
-# Install script for directory: /user/2/gennusoa/CGPU-Project/GPU_HoughEdgeProject
+# Install script for directory: /user/2/.base/gennusoa/home/CGPU-Project/GPU_HoughEdgeProject
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -50,5 +50,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/user/2/gennusoa/CGPU-Project/GPU_HoughEdgeProject/build/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/user/2/.base/gennusoa/home/CGPU-Project/GPU_HoughEdgeProject/build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
