@@ -1,0 +1,7 @@
+convert_to_greyscale: 0.012047 
+apply_gaussian_filter: 0.053488 
+apply_sobel_filters: 0.108783 
+compute_magnitude_and_gradient: 0.035426 
+non_maximum_suppression: 0.019218 
+double_threshold: 0.005616 
+hysteresis: 0.002678 
