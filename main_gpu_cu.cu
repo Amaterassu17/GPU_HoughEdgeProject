@@ -50,6 +50,19 @@ __global__ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_
 	// 		grey_img[i*width + j] = average;
     //  	}
  	// }
+
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if(i < height && j < width){
+		auto b = img[i*width*3 + j*3 + 0];
+		auto g = img[i*width*3 + j*3 + 1];
+		auto r = img[i*width*3 + j*3 + 2];
+
+		int average = (int)(0.2126*r+0.7152*g+0.0722*b);
+
+		grey_img[i*width + j] = average;
+	}
 }
 
 __global__ void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t *Iy, uint8_t *mag, float *grad){
@@ -65,6 +78,9 @@ __global__ void compute_magnitude_and_gradient(int height, int width, uint8_t *I
 	// 		grad[i*width+j] = angle < 180 ? angle+180 : angle;
     //  	}
  	// }
+
+	
+
 }
 
 __global__ void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t *mag, float* grad){
@@ -206,7 +222,7 @@ int main(int argc, char *argv[])
     cudaError_t err = cudaSuccess;
     cudaDeviceProp deviceProp;
     int devID = 0;
-    error = cudaGetDevice(&devID);
+    auto error = cudaGetDevice(&devID);
 
     if (error != cudaSuccess) {
         printf("cudaGetDevice returned error %s (code %d), line(%d)\n", cudaGetErrorString(error), error, __LINE__);
@@ -231,10 +247,7 @@ int main(int argc, char *argv[])
 
     dim3 threads, grid;
 
-    threads = dim3(blocksize, blocksize);
-    grid = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y);
-    printf("CUDA kernel launch with %d blocks of %d threads\n", grid.x * grid.y, threads.x * threads.y);
-
+    
     //image definitions
     int width, height, bpp;
     
@@ -251,6 +264,11 @@ int main(int argc, char *argv[])
     cudaMalloc(&rgb_image_d, width*height*3);
     cudaMemcpy(rgb_image_d, rgb_image, width*height*3, cudaMemcpyHostToDevice);
 
+	threads = dim3(blocksize, blocksize);
+    grid = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y);
+    printf("CUDA kernel launch with %d blocks of %d threads\n", grid.x * grid.y, threads.x * threads.y);
+
+
 
     std::cout<<"image: "<<img_fname<<std::endl;
 	std::cout<<width<<" "<<height<<std::endl;
@@ -258,90 +276,99 @@ int main(int argc, char *argv[])
     //Stop here
 
 	// Convert to greyscale
-    uint8_t* grey_image;
-    grey_image = (uint8_t*)malloc(width*height);
+	uint8_t* grey_image;
+	uint8_t* grey_image_d;
+	grey_image = (uint8_t*)malloc(width*height);
+	cudaMalloc(&grey_image_d, width*height);
 
-	measure_time(true, file_times, "convert_to_greyscale");
-	convert_to_greyscale(height, width, rgb_image, grey_image);
-	measure_time(false, file_times, "convert_to_greyscale");
+	//measure_time(true, file_times, "convert_to_greyscale");
+	// convert_to_greyscale(height, width, rgb_image, grey_image);
+	convert_to_greyscale<<<grid, threads>>>(height, width, rgb_image_d, grey_image_d);
+	cudaMemcpy(grey_image, grey_image_d, width*height, cudaMemcpyDeviceToHost);
+	//measure_time(false, file_times, "convert_to_greyscale");
 	stbi_image_free(rgb_image);
+	cudaFree(rgb_image_d);
+	stbi_write_png("./output/0_image_grey.png", width, height, 1, grey_image, width);
 
-	// Apply Gaussian filtering
-	int kernel_size = 3;
-	float gaussian_filter[kernel_size*kernel_size] = {0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625};
-	uint8_t* gaussian_image;
-    gaussian_image = (uint8_t*)malloc(width*height);
+	cudaDeviceSynchronize(); // Synchronize with CUDA
 
-	measure_time(true, file_times, "apply_gaussian_filter");
-	apply_filter(kernel_size, height, width, gaussian_image, grey_image, gaussian_filter);
-	measure_time(false, file_times, "apply_gaussian_filter");
 
-	stbi_image_free(grey_image);
-	stbi_write_png("./output/0_image_gaussian.png", width, height, 1, gaussian_image, width);
+	// // Apply Gaussian filtering
+	// int kernel_size = 3;
+	// float gaussian_filter[kernel_size*kernel_size] = {0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625};
+	// uint8_t* gaussian_image;
+    // gaussian_image = (uint8_t*)malloc(width*height);
+
+	// measure_time(true, file_times, "apply_gaussian_filter");
+	// apply_filter(kernel_size, height, width, gaussian_image, grey_image, gaussian_filter);
+	// measure_time(false, file_times, "apply_gaussian_filter");
+
+	// stbi_image_free(grey_image);
+	// stbi_write_png("./output/0_image_gaussian.png", width, height, 1, gaussian_image, width);
 	
-	// Apply Sobel filtering
-	float sobel_h[kernel_size*kernel_size] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
-	float sobel_v[kernel_size*kernel_size] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
-	uint8_t* sobel_image_h;
-    sobel_image_h = (uint8_t*)malloc(width*height);
-	uint8_t* sobel_image_v;
-    sobel_image_v = (uint8_t*)malloc(width*height);
+	// // Apply Sobel filtering
+	// float sobel_h[kernel_size*kernel_size] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
+	// float sobel_v[kernel_size*kernel_size] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
+	// uint8_t* sobel_image_h;
+    // sobel_image_h = (uint8_t*)malloc(width*height);
+	// uint8_t* sobel_image_v;
+    // sobel_image_v = (uint8_t*)malloc(width*height);
 
-	measure_time(true, file_times, "apply_sobel_filters");
-	apply_filter(kernel_size, height, width, sobel_image_h, gaussian_image, sobel_h);
-	apply_filter(kernel_size, height, width, sobel_image_v, gaussian_image, sobel_v);
-	measure_time(false, file_times, "apply_sobel_filters");
+	// measure_time(true, file_times, "apply_sobel_filters");
+	// apply_filter(kernel_size, height, width, sobel_image_h, gaussian_image, sobel_h);
+	// apply_filter(kernel_size, height, width, sobel_image_v, gaussian_image, sobel_v);
+	// measure_time(false, file_times, "apply_sobel_filters");
 
-    stbi_image_free(gaussian_image);
-	stbi_write_png("./output/1_image_sobel_h.png", width, height, 1, sobel_image_h, width);
-	stbi_write_png("./output/1_image_sobel_v.png", width, height, 1, sobel_image_v, width);
+    // stbi_image_free(gaussian_image);
+	// stbi_write_png("./output/1_image_sobel_h.png", width, height, 1, sobel_image_h, width);
+	// stbi_write_png("./output/1_image_sobel_v.png", width, height, 1, sobel_image_v, width);
 
-	// Calculate magnitude and gradient direction
-    float* gradient_direction;
-    gradient_direction = (float*)malloc(width*height*sizeof(float));
-	uint8_t* magnitude;
-    magnitude = (uint8_t*)malloc(width*height);
+	// // Calculate magnitude and gradient direction
+    // float* gradient_direction;
+    // gradient_direction = (float*)malloc(width*height*sizeof(float));
+	// uint8_t* magnitude;
+    // magnitude = (uint8_t*)malloc(width*height);
 
-	measure_time(true, file_times, "compute_magnitude_and_gradient");
-	compute_magnitude_and_gradient(height, width, sobel_image_h, sobel_image_v, magnitude, gradient_direction);
-	measure_time(false, file_times, "compute_magnitude_and_gradient");
+	// measure_time(true, file_times, "compute_magnitude_and_gradient");
+	// compute_magnitude_and_gradient(height, width, sobel_image_h, sobel_image_v, magnitude, gradient_direction);
+	// measure_time(false, file_times, "compute_magnitude_and_gradient");
 
-	stbi_image_free(sobel_image_v);
-	stbi_image_free(sobel_image_h);
-	stbi_write_png("./output/2_gradient_direction.png", width, height, 1, gradient_direction, width);
-	stbi_write_png("./output/2_magnitude.png", width, height, 1, magnitude, width);
+	// stbi_image_free(sobel_image_v);
+	// stbi_image_free(sobel_image_h);
+	// stbi_write_png("./output/2_gradient_direction.png", width, height, 1, gradient_direction, width);
+	// stbi_write_png("./output/2_magnitude.png", width, height, 1, magnitude, width);
 
-	// Non-maximum suppression
-	uint8_t* suppr_mag;
-    suppr_mag = (uint8_t*)malloc(width*height);
+	// // Non-maximum suppression
+	// uint8_t* suppr_mag;
+    // suppr_mag = (uint8_t*)malloc(width*height);
 
-	measure_time(true, file_times, "non_maximum_suppression");
-	non_maximum_suppression(height, width, suppr_mag, magnitude, gradient_direction);
-	measure_time(false, file_times, "non_maximum_suppression");
+	// measure_time(true, file_times, "non_maximum_suppression");
+	// non_maximum_suppression(height, width, suppr_mag, magnitude, gradient_direction);
+	// measure_time(false, file_times, "non_maximum_suppression");
 
-	double max = *std::max_element(magnitude, magnitude + width*height);
+	// double max = *std::max_element(magnitude, magnitude + width*height);
 
-	std::cout<<max<<std::endl;
+	// std::cout<<max<<std::endl;
 
-	stbi_image_free(magnitude);
-	stbi_image_free(gradient_direction);
-	stbi_write_png("./output/3_nonmax_suppr.png", width, height, 1, suppr_mag, width);
+	// stbi_image_free(magnitude);
+	// stbi_image_free(gradient_direction);
+	// stbi_write_png("./output/3_nonmax_suppr.png", width, height, 1, suppr_mag, width);
 
-	// classify pixels as strong, weak or non-relevant
-	uint8_t* pixel_classification;
-    pixel_classification = (uint8_t*)malloc(width*height);
+	// // classify pixels as strong, weak or non-relevant
+	// uint8_t* pixel_classification;
+    // pixel_classification = (uint8_t*)malloc(width*height);
 	
-	measure_time(true, file_times, "double_threshold");
-	double_threshold(height, width, pixel_classification, suppr_mag);
-	measure_time(false, file_times, "double_threshold");
+	// measure_time(true, file_times, "double_threshold");
+	// double_threshold(height, width, pixel_classification, suppr_mag);
+	// measure_time(false, file_times, "double_threshold");
 
-	stbi_write_png("./output/4_thresholded.png", width, height, 1, pixel_classification, width);
+	// stbi_write_png("./output/4_thresholded.png", width, height, 1, pixel_classification, width);
 
-	measure_time(true, file_times, "hysteresis");
-	hysteresis(height, width, pixel_classification);
-	measure_time(false, file_times, "hysteresis");
+	// measure_time(true, file_times, "hysteresis");
+	// hysteresis(height, width, pixel_classification);
+	// measure_time(false, file_times, "hysteresis");
 
-	stbi_write_png("./output/5_hysteresis.png", width, height, 1, pixel_classification, width);
+	// stbi_write_png("./output/5_hysteresis.png", width, height, 1, pixel_classification, width);
 
     return 0;
 }
