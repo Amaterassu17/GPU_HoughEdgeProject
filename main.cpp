@@ -10,6 +10,20 @@
 #include "stb_image_write.h"
 #include <chrono>
 
+#define M_PI 3.14159265358979323846
+
+//Should be the threshold based on the max magnitudes seen in the image. In our case most likely 255
+
+#define LAPLACIAN_GAUSSIAN 1
+#define GAUSSIAN_KERNEL_SIZE 3
+#define GAUSSIAN_SIGMA 1.1
+
+
+
+
+#define MAX_THRESHOLD_MULT 0.15
+#define MIN_THRESHOLD_MULT 0.02
+#define NON_MAX_SUPPR_THRESHOLD 0.4
 
 
 void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
@@ -32,6 +46,7 @@ void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8
      	}
  	}
 }
+
 
 void convert_to_greyscale(int height, int width, uint8_t *img, uint8_t *grey_img)
 {
@@ -106,7 +121,7 @@ void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t 
 			}
 
 			// Fine-tuning the threshold values
-			float threshold = 0.5; // Adjust this value to make the suppression less aggressive
+			float threshold = NON_MAX_SUPPR_THRESHOLD; // Adjust this value to make the suppression less aggressive
 
 			if (mag[i*width + j] >= q * threshold && mag[i*width + j] >= r * threshold){
 				suppr_mag[i*width + j] = mag[i*width + j];
@@ -118,29 +133,39 @@ void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t 
 	}
 }
 
-void double_threshold(int height, int width,  uint8_t *pixel_classification,  uint8_t *suppr_mag){
+void double_threshold(int height, int width, uint8_t *pixel_classification, uint8_t *suppr_mag) {
+	float max_mag = 0.0;
 
-	float high_threshold = 0.09*255;
-	float low_threshold = high_threshold*0.05*1.2;
+	// Find the maximum and minimum magnitude values
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			float mag = suppr_mag[i * width + j];
+			max_mag = std::max(max_mag, mag);
+			
+		}
+	}
 
-	std::cout<<low_threshold<<", "<<high_threshold<<std::endl;
-	
-	for(int i = 0; i < height; i++)
- 	{
-     	for(int j = 0; j < width; j++)
-	 	{
-			if(suppr_mag[i*width+j] >= high_threshold){
-				// strong pixels
-				pixel_classification[i*width+j] = 255;
-			} else if (suppr_mag[i*width+j] < low_threshold){
-				// non relevant pixels
-				pixel_classification[i*width+j] = 0;
+	// Calculate the new threshold values
+	float high_threshold = MAX_THRESHOLD_MULT * max_mag;
+	float low_threshold = MIN_THRESHOLD_MULT * max_mag;
+
+	printf("high_threshold: %f \n", high_threshold);
+	printf("low_threshold: %f \n", low_threshold);
+
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			if (suppr_mag[i * width + j] >= high_threshold) {
+				// Strong pixels
+				pixel_classification[i * width + j] = 255;
+			} else if (suppr_mag[i * width + j] < low_threshold) {
+				// Non-relevant pixels
+				pixel_classification[i * width + j] = 0;
 			} else {
-				// weak pixels
-				pixel_classification[i*width+j] = 25;
+				// Weak pixels
+				pixel_classification[i * width + j] = 25;
 			}
-     	}
- 	}
+		}
+	}
 }
 
 void hysteresis(int height, int width, uint8_t *pixel_classification){
@@ -214,6 +239,43 @@ void measure_time(bool start, FILE* file_times, std::string name){
 	}
 }
 
+float* get_gaussian_filter (int kernel_size, float sigma){
+	float* gaussian_filter = (float*)malloc(kernel_size*kernel_size*sizeof(float));
+	float sum = 0.0;
+	for(int i = 0; i < kernel_size; i++){
+		for(int j = 0; j < kernel_size; j++){
+			gaussian_filter[i*kernel_size + j] = exp(-(i*i+j*j)/(2*sigma*sigma))/(2*M_PI*sigma*sigma);
+			sum += gaussian_filter[i*kernel_size + j];
+		}
+	}
+	for(int i = 0; i < kernel_size; i++){
+		for(int j = 0; j < kernel_size; j++){
+			gaussian_filter[i*kernel_size + j] /= sum;
+		}
+	}
+	return gaussian_filter;
+
+}
+
+float* get_gaussian_laplacian_filter (int kernel_size, float sigma){
+	float* gaussian_filter = (float*)malloc(kernel_size*kernel_size*sizeof(float));
+	float sum = 0.0;
+	for(int i = 0; i < kernel_size; i++){
+		for(int j = 0; j < kernel_size; j++){
+			gaussian_filter[i*kernel_size + j] = (((i*i+j*j)/(2*sigma*sigma))-1)*exp(-(i*i+j*j)/(2*sigma*sigma))/(M_PI*sigma*sigma*sigma*sigma);
+			sum += gaussian_filter[i*kernel_size + j];
+		}
+	}
+	for(int i = 0; i < kernel_size; i++){
+		for(int j = 0; j < kernel_size; j++){
+			gaussian_filter[i*kernel_size + j] /= sum;
+		}
+	}
+	return gaussian_filter;
+
+
+}
+
 
 
 int main(int argc, char *argv[])
@@ -242,29 +304,15 @@ int main(int argc, char *argv[])
 	stbi_image_free(rgb_image);
 
 // 	Apply Gaussian filtering
-
-	// int kernel_size = 7;
-	// float gaussian_filter[kernel_size * kernel_size] = {
-	// 	0.000036, 0.000363, 0.001446, 0.002291, 0.001446, 0.000363, 0.000036,
-	// 	0.000363, 0.003676, 0.014662, 0.023226, 0.014662, 0.003676, 0.000363,
-	// 	0.001446, 0.014662, 0.058488, 0.092651, 0.058488, 0.014662, 0.001446,
-	// 	0.002291, 0.023226, 0.092651, 0.146768, 0.092651, 0.023226, 0.002291,
-	// 	0.001446, 0.014662, 0.058488, 0.092651, 0.058488, 0.014662, 0.001446,
-	// 	0.000363, 0.003676, 0.014662, 0.023226, 0.014662, 0.003676, 0.000363,
-	// 	0.000036, 0.000363, 0.001446, 0.002291, 0.001446, 0.000363, 0.000036
-	// };
-
-// 	int kernel_size = 5;
-// 	float gaussian_filter[kernel_size * kernel_size] = {
-//     0.003663, 0.014652, 0.025641, 0.014652, 0.003663,
-//     0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
-//     0.025641, 0.095238, 0.150183, 0.095238, 0.025641,
-//     0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
-//     0.003663, 0.014652, 0.025641, 0.014652, 0.003663
-// };
-
-	int kernel_size = 3;
-	float gaussian_filter[kernel_size*kernel_size] = {0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625};
+// Choose the kernel size you want
+	
+	auto kernel_size = GAUSSIAN_KERNEL_SIZE;
+	float sigma = GAUSSIAN_SIGMA;
+	#if LAPLACIAN_GAUSSIAN
+		float* gaussian_filter = get_gaussian_laplacian_filter(kernel_size, sigma);
+	#else
+		float* gaussian_filter = get_gaussian_filter(kernel_size, sigma);
+	#endif
 
 	uint8_t* gaussian_image;
     gaussian_image = (uint8_t*)malloc(width*height);

@@ -10,8 +10,10 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#define BLOCK_SIZE 16
 
-__global__ void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
+
+__global__ void apply_filter_global(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
 {
 	// for(int i = 1; i < height-1; i++)
  	// {
@@ -33,6 +35,19 @@ __global__ void apply_filter(int kernel_size, int height, int width, uint8_t *ou
 
     //TODO: PARALLELIZE
 
+	__shared__ float kernel_shared[9];
+
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	int j
+
+}
+
+__global__ void apply_filter_shared(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
+
+}
+
+__global__ void apply_filter_shared_tiled(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
+	
 }
 
 __global__ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_t *grey_img)
@@ -193,12 +208,30 @@ __global__ void hysteresis(int height, int width, uint8_t *pixel_classification)
 // 	}
 // }
 
+float* get_gaussian_filter (int kernel_size, float sigma){
+	float* gaussian_filter = (float*)malloc(kernel_size*kernel_size*sizeof(float));
+	float sum = 0.0;
+	for(int i = 0; i < kernel_size; i++){
+		for(int j = 0; j < kernel_size; j++){
+			gaussian_filter[i*kernel_size + j] = exp(-(i*i+j*j)/(2*sigma*sigma))/(2*M_PI*sigma*sigma);
+			sum += gaussian_filter[i*kernel_size + j];
+		}
+	}
+	for(int i = 0; i < kernel_size; i++){
+		for(int j = 0; j < kernel_size; j++){
+			gaussian_filter[i*kernel_size + j] /= sum;
+		}
+	}
+	return gaussian_filter;
+
+}
+
 
 
 int main(int argc, char *argv[])
 {
     //Cuda definitions
-    const int blocksize = 16;
+    const int blocksize = BLOCK_SIZE;
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
