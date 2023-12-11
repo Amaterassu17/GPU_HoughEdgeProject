@@ -367,6 +367,8 @@ int main(int argc, char *argv[])
 	apply_erosion(erosion_kernel_size, height, width, erosion, dilation, erosion_kernel);
 	measure_time(false, file_times, "erosion");
 
+	
+
 	stbi_write_png("./output/7_erosion.png", width, height, 1, erosion, width);
 
 

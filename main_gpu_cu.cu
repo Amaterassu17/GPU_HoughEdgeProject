@@ -37,19 +37,6 @@ __global__ void apply_filter(int kernel_size, int height, int width, uint8_t *ou
 
 __global__ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_t *grey_img)
 {
-	// for(int i = 0; i < height; i++)
- 	// {
-    //  	for(int j = 0; j < width; j++)
-	//  	{
-	// 		auto b = img[i*width*3 + j*3 + 0];
-	// 		auto g = img[i*width*3 + j*3 + 1];
-	// 		auto r = img[i*width*3 + j*3 + 2];
-
-	// 		int average = (int)(0.2126*r+0.7152*g+0.0722*b);
-
-	// 		grey_img[i*width + j] = average;
-    //  	}
- 	// }
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -59,7 +46,7 @@ __global__ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_
 		auto g = img[i*width*3 + j*3 + 1];
 		auto r = img[i*width*3 + j*3 + 2];
 
-		int average = (int)(0.2126*r+0.7152*g+0.0722*b);
+		int average = (int)(0.3*r + 0.59*g + 0.11*b); // Adjust the weights for each channel
 
 		grey_img[i*width + j] = average;
 	}
