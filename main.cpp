@@ -36,18 +36,18 @@ void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8
 void convert_to_greyscale(int height, int width, uint8_t *img, uint8_t *grey_img)
 {
 	for(int i = 0; i < height; i++)
- 	{
-     	for(int j = 0; j < width; j++)
-	 	{
+	{
+		for(int j = 0; j < width; j++)
+		{
 			auto b = img[i*width*3 + j*3 + 0];
 			auto g = img[i*width*3 + j*3 + 1];
 			auto r = img[i*width*3 + j*3 + 2];
 
-			int average = (int)(0.2126*r+0.7152*g+0.0722*b);
+			int average = (int)(0.3*r + 0.59*g + 0.11*b); // Adjust the weights for each channel
 
 			grey_img[i*width + j] = average;
-     	}
- 	}
+		}
+	}
 }
 
 void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t *Iy, uint8_t *mag, float *grad){
@@ -68,57 +68,60 @@ void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t 
 void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t *mag, float* grad){
 
 	for(int i = 0; i < height; i++)
- 	{
-     	for(int j = 0; j < width; j++)
-	 	{
+	{
+		for(int j = 0; j < width; j++)
+		{
 			// in cpp is there a better way to initialize with zeros??
 			suppr_mag[i*width + j] = 0;
-     	}
- 	}
+		}
+	}
 
 
 	for(int i = 1; i < height-1; i++)
- 	{
-     	for(int j = 1; j < width-1; j++)
-	 	{
+	{
+		for(int j = 1; j < width-1; j++)
+		{
 			int q = 255;
 			int r = 255;
 
 			//angle 0
-            if (0 <= grad[i*width+j] < 22.5 || 157.5 <= grad[i*width+j] <= 180){
-                q = mag[i*width + j+1];
-                r = mag[i*width + j-1];
+			if (0 <= grad[i*width+j] < 22.5 || 157.5 <= grad[i*width+j] <= 180){
+				q = mag[i*width + j+1];
+				r = mag[i*width + j-1];
 			}
-            //angle 45
-            else if (22.5 <= grad[i*width+j] < 67.5){
-                q = mag[(i+1)*width + j-1];
-                r = mag[(i-1)*width + j+1];
+			//angle 45
+			else if (22.5 <= grad[i*width+j] < 67.5){
+				q = mag[(i+1)*width + j-1];
+				r = mag[(i-1)*width + j+1];
 			}
-            //angle 90
-            else if (67.5 <= grad[i*width+j] < 112.5){
-                q = mag[(i+1)*width + j];
-                r = mag[(i-1)*width + j];
+			//angle 90
+			else if (67.5 <= grad[i*width+j] < 112.5){
+				q = mag[(i+1)*width + j];
+				r = mag[(i-1)*width + j];
 			}
-            //angle 135
-            else if (112.5 <= grad[i*width+j] < 157.5){
-                q = mag[(i-1)*width + j-1];
-                r = mag[(i+1)*width + j+1];
+			//angle 135
+			else if (112.5 <= grad[i*width+j] < 157.5){
+				q = mag[(i-1)*width + j-1];
+				r = mag[(i+1)*width + j+1];
 			}
 
-			if (mag[i*width + j] >= q && mag[i*width + j] >= r){
-                suppr_mag[i*width + j] = mag[i*width + j];
+			// Fine-tuning the threshold values
+			float threshold = 0.5; // Adjust this value to make the suppression less aggressive
+
+			if (mag[i*width + j] >= q * threshold && mag[i*width + j] >= r * threshold){
+				suppr_mag[i*width + j] = mag[i*width + j];
 			} else {
 				suppr_mag[i*width + j] = 0;
 			}
 
-     	}
- 	}
+		}
+	}
 }
 
 void double_threshold(int height, int width,  uint8_t *pixel_classification,  uint8_t *suppr_mag){
 
 	float high_threshold = 0.09*255;
-	float low_threshold = high_threshold*0.05;
+	float low_threshold = high_threshold*0.05*1.2;
 
 	std::cout<<low_threshold<<", "<<high_threshold<<std::endl;
 	
@@ -157,6 +160,45 @@ void hysteresis(int height, int width, uint8_t *pixel_classification){
 			}
      	}
  	}
+}
+
+void apply_dilation(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
+{
+for (int i = 1; i < height - 1; i++) {
+    for (int j = 1; j < width - 1; j++) {
+        float max_val = std::numeric_limits<float>::min();
+
+        for (int k = 0; k < kernel_size; k++) {
+            for (int m = 0; m < kernel_size; m++) {
+                float pixel_value = kernel[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)];
+                max_val = std::max(max_val, pixel_value);
+            }
+        }
+
+        output[i * width + j] = max_val;
+    }
+}
+
+}
+
+void apply_erosion(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
+{
+	for (int i = 1; i < height - 1; i++)
+	{
+		for (int j = 1; j < width - 1; j++)
+		{
+			float min_val = std::numeric_limits<float>::max();
+
+			for (int k = 0; k < kernel_size; k++)
+			{
+				for (int m = 0; m < kernel_size; m++)
+				{
+					min_val = std::min(min_val, kernel[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)]);
+				}
+			}
+			output[i * width + j] = (int)min_val;
+		}
+	}
 }
 
 void measure_time(bool start, FILE* file_times, std::string name){
@@ -199,9 +241,31 @@ int main(int argc, char *argv[])
 	measure_time(false, file_times, "convert_to_greyscale");
 	stbi_image_free(rgb_image);
 
-	// Apply Gaussian filtering
+// 	Apply Gaussian filtering
+
+	// int kernel_size = 7;
+	// float gaussian_filter[kernel_size * kernel_size] = {
+	// 	0.000036, 0.000363, 0.001446, 0.002291, 0.001446, 0.000363, 0.000036,
+	// 	0.000363, 0.003676, 0.014662, 0.023226, 0.014662, 0.003676, 0.000363,
+	// 	0.001446, 0.014662, 0.058488, 0.092651, 0.058488, 0.014662, 0.001446,
+	// 	0.002291, 0.023226, 0.092651, 0.146768, 0.092651, 0.023226, 0.002291,
+	// 	0.001446, 0.014662, 0.058488, 0.092651, 0.058488, 0.014662, 0.001446,
+	// 	0.000363, 0.003676, 0.014662, 0.023226, 0.014662, 0.003676, 0.000363,
+	// 	0.000036, 0.000363, 0.001446, 0.002291, 0.001446, 0.000363, 0.000036
+	// };
+
+// 	int kernel_size = 5;
+// 	float gaussian_filter[kernel_size * kernel_size] = {
+//     0.003663, 0.014652, 0.025641, 0.014652, 0.003663,
+//     0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
+//     0.025641, 0.095238, 0.150183, 0.095238, 0.025641,
+//     0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
+//     0.003663, 0.014652, 0.025641, 0.014652, 0.003663
+// };
+
 	int kernel_size = 3;
 	float gaussian_filter[kernel_size*kernel_size] = {0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625};
+
 	uint8_t* gaussian_image;
     gaussian_image = (uint8_t*)malloc(width*height);
 
@@ -275,6 +339,37 @@ int main(int argc, char *argv[])
 	measure_time(false, file_times, "hysteresis");
 
 	stbi_write_png("./output/5_hysteresis.png", width, height, 1, pixel_classification, width);
+
+	uint8_t* dilation;
+	dilation = (uint8_t*)malloc(width*height);
+
+	//dilation kernel
+	auto dilation_kernel_size = 3;
+	float dilation_kernel[kernel_size*kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+	measure_time(true, file_times, "dilation");
+	apply_dilation(dilation_kernel_size, height, width, dilation, pixel_classification, dilation_kernel);
+	measure_time(false, file_times, "dilation");
+
+	stbi_write_png("./output/6_dilation.png", width, height, 1, dilation, width);
+
+	uint8_t* erosion;
+	erosion = (uint8_t*)malloc(width*height);
+
+	//erosion kernel
+	auto erosion_kernel_size = 3;
+	float erosion_kernel[kernel_size*kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+	// auto erosion_kernel_size = 5;
+	// float erosion_kernel[erosion_kernel_size*erosion_kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+	measure_time(true, file_times, "erosion");
+	apply_erosion(erosion_kernel_size, height, width, erosion, dilation, erosion_kernel);
+	measure_time(false, file_times, "erosion");
+
+	stbi_write_png("./output/7_erosion.png", width, height, 1, erosion, width);
+
+
 
     return 0;
 }

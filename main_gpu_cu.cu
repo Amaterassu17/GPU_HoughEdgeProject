@@ -293,11 +293,11 @@ int main(int argc, char *argv[])
 	cudaDeviceSynchronize(); // Synchronize with CUDA
 
 
-	// // Apply Gaussian filtering
-	// int kernel_size = 3;
-	// float gaussian_filter[kernel_size*kernel_size] = {0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625};
-	// uint8_t* gaussian_image;
-    // gaussian_image = (uint8_t*)malloc(width*height);
+	// Apply Gaussian filtering
+	int kernel_size = 3;
+	float gaussian_filter[kernel_size*kernel_size] = {0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625};
+	uint8_t* gaussian_image;
+    gaussian_image = (uint8_t*)malloc(width*height);
 
 	// measure_time(true, file_times, "apply_gaussian_filter");
 	// apply_filter(kernel_size, height, width, gaussian_image, grey_image, gaussian_filter);
