@@ -4,17 +4,33 @@
 #include <cmath>
 #include <algorithm>
 #include <stdint.h>
+#include <cuda.h>
+#include <cuda_runtime.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 32
 
 
-__global__ void apply_filter_global(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
-{
+//Should be the threshold based on the max magnitudes seen in the image. In our case most likely 255
+
+#define LAPLACIAN_GAUSSIAN 1
+#define GAUSSIAN_KERNEL_SIZE 3
+#define GAUSSIAN_SIGMA 1.2
+
+
+
+
+#define MAX_THRESHOLD_MULT 0.15
+#define MIN_THRESHOLD_MULT 0.02
+#define NON_MAX_SUPPR_THRESHOLD 0.4
+
+
+
+__global__ void apply_filter_global(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
 	// for(int i = 1; i < height-1; i++)
  	// {
     //  	for(int j = 1; j < width-1; j++)
@@ -35,14 +51,70 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 
     //TODO: PARALLELIZE
 
-	__shared__ float kernel_shared[9];
-
+	
+	
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
-	int j
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+
+	if(i == 0 && j==0)	
+	for(int p = 0; p < kernel_size; p++){
+		for(int o = 0; o < kernel_size; o++){
+			printf("%f ", kernel[p*kernel_size + o]);
+		}
+		printf("\n");
+	}
+	float sum = 0;
+
+	for (int k = 0; k < kernel_size; k++)
+	{
+		for (int m = 0; m < kernel_size; m++)
+		{
+			sum += kernel[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)];
+			//sum +=  input[i * width + j];
+		}
+	}
+	
+
+	output[i * width + j] = (int)abs(sum);
 
 }
 
 __global__ void apply_filter_shared(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
+	extern __shared__ float kernel_shared[];
+
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	for(int p = 0; p < kernel_size; p++){
+		for(int o = 0; o < kernel_size; o++){
+			printf("%f ", kernel[p*kernel_size + o]);
+		}
+		printf("\n");
+	}
+
+	if(threadIdx.x < kernel_size && threadIdx.y < kernel_size){
+		kernel_shared[threadIdx.y*kernel_size + threadIdx.x] = kernel[threadIdx.y*kernel_size + threadIdx.x];
+	}
+
+	
+
+	__syncthreads();
+
+
+	if(i < height && j < width){
+		float sum = 0;
+
+		for (int k = 0; k < kernel_size; k++)
+		{
+			for (int m = 0; m < kernel_size; m++)
+			{
+				sum += kernel_shared[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)];
+				//sum +=  input[i * width + j];
+			}
+		}
+		output[i * width + j] = (int)abs(sum);
+	}
 
 }
 
@@ -209,6 +281,9 @@ __global__ void hysteresis(int height, int width, uint8_t *pixel_classification)
 // }
 
 float* get_gaussian_filter (int kernel_size, float sigma){
+
+	kernel_size = kernel_size%2 == 0 ? kernel_size-1 : kernel_size;
+
 	float* gaussian_filter = (float*)malloc(kernel_size*kernel_size*sizeof(float));
 	float sum = 0.0;
 	for(int i = 0; i < kernel_size; i++){
@@ -226,15 +301,34 @@ float* get_gaussian_filter (int kernel_size, float sigma){
 
 }
 
+float* get_gaussian_laplacian_filter (int kernel_size, float sigma){
+	float* gaussian_filter = (float*)malloc(kernel_size*kernel_size*sizeof(float));
+	float sum = 0.0;
+	for(int i = 0; i < kernel_size; i++){
+		for(int j = 0; j < kernel_size; j++){
+			gaussian_filter[i*kernel_size + j] = (((i*i+j*j)/(2*sigma*sigma))-1)*exp(-(i*i+j*j)/(2*sigma*sigma))/(M_PI*sigma*sigma*sigma*sigma);
+			sum += gaussian_filter[i*kernel_size + j];
+		}
+	}
+	for(int i = 0; i < kernel_size; i++){
+		for(int j = 0; j < kernel_size; j++){
+			gaussian_filter[i*kernel_size + j] /= sum;
+		}
+	}
+	return gaussian_filter;
+
+
+}
+
 
 
 int main(int argc, char *argv[])
 {
     //Cuda definitions
     const int blocksize = BLOCK_SIZE;
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    // cudaEvent_t start, stop;
+    // cudaEventCreate(&start);
+    // cudaEventCreate(&stop);
     int device;
     struct cudaDeviceProp properties;
     
@@ -273,7 +367,7 @@ int main(int argc, char *argv[])
     
 	auto img_fname = argc>=2 ? argv[1] : "image.png";
 
-	system("mkdir -p output");
+	system("mkdir -p output_GPU");
 	auto file_times = fopen("./output/times.txt", "w");
 	
 
@@ -304,20 +398,55 @@ int main(int argc, char *argv[])
 	//measure_time(true, file_times, "convert_to_greyscale");
 	// convert_to_greyscale(height, width, rgb_image, grey_image);
 	convert_to_greyscale<<<grid, threads>>>(height, width, rgb_image_d, grey_image_d);
+	cudaDeviceSynchronize(); // Synchronize with CUDA
 	cudaMemcpy(grey_image, grey_image_d, width*height, cudaMemcpyDeviceToHost);
 	//measure_time(false, file_times, "convert_to_greyscale");
 	stbi_image_free(rgb_image);
 	cudaFree(rgb_image_d);
-	stbi_write_png("./output/0_image_grey.png", width, height, 1, grey_image, width);
+	stbi_write_png("./output_GPU/0_image_grey.png", width, height, 1, grey_image, width);
 
-	cudaDeviceSynchronize(); // Synchronize with CUDA
+	
 
 
 	// Apply Gaussian filtering
-	int kernel_size = 3;
-	float gaussian_filter[kernel_size*kernel_size] = {0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625};
+	
+	auto kernel_size = GAUSSIAN_KERNEL_SIZE;
+	float sigma = GAUSSIAN_SIGMA;
+	#if LAPLACIAN_GAUSSIAN
+		float* gaussian_filter = get_gaussian_laplacian_filter(kernel_size, sigma);
+	#else
+		float* gaussian_filter = get_gaussian_filter(kernel_size, sigma);
+	#endif
+	//float gaussian_filter[9] = {1,1,1,1,1,1,1,1,1};
+	// for(int i = 0; i < kernel_size; i++){
+	// 	for(int j = 0; j < kernel_size; j++){
+	// 		std::cout<<gaussian_filter[i*kernel_size + j]<<" ";
+	// 	}
+	// 	std::cout<<std::endl;
+	// }
+
 	uint8_t* gaussian_image;
+	uint8_t* gaussian_image_d;
+	float* gaussian_filter_d;
     gaussian_image = (uint8_t*)malloc(width*height);
+	cudaMalloc(&gaussian_image_d, width*height);
+	cudaMalloc(&gaussian_filter_d, kernel_size*kernel_size*sizeof(float));
+	cudaMemcpy(gaussian_filter_d, gaussian_filter, kernel_size*kernel_size*sizeof(float), cudaMemcpyHostToDevice);	
+
+	//static global memory version
+	//apply_filter_global<<<grid, threads>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+
+	//dinamic shared memory version
+	apply_filter_shared<<<grid, threads, kernel_size*kernel_size*sizeof(float)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+
+	cudaDeviceSynchronize(); // Synchronize with CUDA
+
+	cudaMemcpy(gaussian_image, gaussian_image_d, width*height, cudaMemcpyDeviceToHost);
+	cudaDeviceSynchronize();
+	//free(gaussian_filter);
+	stbi_image_free(grey_image);
+	stbi_write_png("./output_GPU/0_image_gaussian.png", width, height, 1, gaussian_image, width);
+
 
 	// measure_time(true, file_times, "apply_gaussian_filter");
 	// apply_filter(kernel_size, height, width, gaussian_image, grey_image, gaussian_filter);
