@@ -12,14 +12,9 @@
 
 #define M_PI 3.14159265358979323846
 
-//Should be the threshold based on the max magnitudes seen in the image. In our case most likely 255
-
 #define LAPLACIAN_GAUSSIAN 1
 #define GAUSSIAN_KERNEL_SIZE 3
 #define GAUSSIAN_SIGMA 1.1
-
-
-
 
 #define MAX_THRESHOLD_MULT 0.15
 #define MIN_THRESHOLD_MULT 0.02
@@ -42,7 +37,7 @@ void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8
 
 				}
 			}
-			output[i*width + j] = (int)abs(sum);
+			output[i*width + j] = round(sum);
      	}
  	}
 }
@@ -67,13 +62,16 @@ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_t *grey_img
 
 void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t *Iy, uint8_t *mag, float *grad){
 
+	float maximum_magnitude_value = round(sqrt(2*255*255));
+	float scalingFactor = 255.0 / (maximum_magnitude_value);
+	
 	for(int i = 1; i < height-1; i++)
  	{
      	for(int j = 1; j < width-1; j++)
 	 	{
 			float dx = Ix[i*width+j];
 			float dy = Iy[i*width+j];
-			mag[i*width+j] = (int)sqrt(dx*dx+dy*dy);
+			mag[i*width+j] = round(sqrt(dx*dx+dy*dy)*scalingFactor);
 			float angle = atan2(dy, dx)*180/M_PI;
 			grad[i*width+j] = angle < 180 ? angle+180 : angle;
      	}
@@ -86,7 +84,6 @@ void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t 
 	{
 		for(int j = 0; j < width; j++)
 		{
-			// in cpp is there a better way to initialize with zeros??
 			suppr_mag[i*width + j] = 0;
 		}
 	}
@@ -423,7 +420,3 @@ int main(int argc, char *argv[])
 
     return 0;
 }
-
-
-// TODOS:
-// zeit messen
