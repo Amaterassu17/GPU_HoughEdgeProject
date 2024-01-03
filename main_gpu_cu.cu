@@ -35,6 +35,7 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
+
 	if(i < height && j < width){
 		float sum = 0.0f; // Initialize sum to 0 inside the loop
 
@@ -52,6 +53,7 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 			}
 		}
 
+		//printf("%f\n", sum);
 		output[i * width + j] = (uint8_t)abs(sum);
 	}
 }
@@ -69,19 +71,21 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 
 	__syncthreads(); // Ensure all threads have finished copying to shared memory
 
-	if(threadIdx.x == 0 && threadIdx.y == 0){
-		printf("kernel size: %d\n", kernel_size);
-		for(int i = 0; i < kernel_size; i++){
-			for(int j = 0; j < kernel_size; j++){
-				printf("%f ", kernel_shared[i*kernel_size + j]);
-			}
-			printf("\n");
-		}
-	}
+	// if(threadIdx.x == 0 && threadIdx.y == 0){
+	// 	printf("kernel size: %d\n", kernel_size);
+	// 	for(int i = 0; i < kernel_size; i++){
+	// 		for(int j = 0; j < kernel_size; j++){
+	// 			printf("%f ", kernel[i*kernel_size + j]);
+	// 		}
+	// 		printf("\n");
+	// 	}
+	// }
 
 	if (i < height && j < width) {
 		float sum = 0;
 
+		// printf("%d, ", input[i*width + j]);
+		//printf("%f, %f, %f, %f, %f, %f, %f, %f, %f\n", kernel_shared[0], kernel_shared[1], kernel_shared[2], kernel_shared[3], kernel_shared[4], kernel_shared[5], kernel_shared[6], kernel_shared[7], kernel_shared[8]);
 		for (int k = 0; k < kernel_size; k++) {
 			for (int m = 0; m < kernel_size; m++) {
 				int input_row = i + (k - 1);
@@ -90,9 +94,13 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 				// Check if the indices are within bounds
 				if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
 					sum += kernel_shared[k * kernel_size + m] * input[input_row * width + input_col];
+					if(threadIdx.x == 1 && threadIdx.y == 1){
+						//printf("k = %d, m= %d, kernel_shared -> %f, input -> %d\n",k,m, kernel_shared[k * kernel_size + m], input[input_row * width + input_col]);
+					}
 				}
 			}
 		}
+		
 
 		output[i * width + j] = (uint8_t)abs(sum);
 	}
