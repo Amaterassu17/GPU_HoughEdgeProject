@@ -130,18 +130,18 @@ __global__ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_
 
 __global__ void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t *Iy, uint8_t *mag, float *grad){
 
-	// for(int i = 1; i < height-1; i++)
- 	// {
-    //  	for(int j = 1; j < width-1; j++)
-	//  	{
-	// 		float dx = Ix[i*width+j];
-	// 		float dy = Iy[i*width+j];
-	// 		mag[i*width+j] = (int)sqrt(dx*dx+dy*dy);
-	// 		float angle = atan2(dy, dx)*180/M_PI;
-	// 		grad[i*width+j] = angle < 180 ? angle+180 : angle;
-    //  	}
- 	// }
+	//can we use shared memory for this??
 
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if(i < height && j < width){
+		float dx = Ix[i*width+j];
+		float dy = Iy[i*width+j];
+		mag[i*width+j] = (int)sqrt(dx*dx+dy*dy);
+		float angle = atan2(dy, dx)*180/M_PI;
+		grad[i*width+j] = angle < 180 ? angle+180 : angle;
+	}
 	
 
 }
@@ -475,6 +475,26 @@ int main(int argc, char *argv[])
 	// stbi_image_free(sobel_image_h);
 	// stbi_write_png("./output/2_gradient_direction.png", width, height, 1, gradient_direction, width);
 	// stbi_write_png("./output/2_magnitude.png", width, height, 1, magnitude, width);
+
+	float* gradient_direction;
+	float* gradient_direction_d;
+	uint8_t* magnitude;
+	uint8_t* magnitude_d;
+	
+	gradient_direction = (float*)malloc(width*height*sizeof(float));
+	magnitude = (uint8_t*)malloc(width*height);
+	cudaMalloc(&gradient_direction_d, width*height*sizeof(float));
+	cudaMalloc(&magnitude_d, width*height);
+
+	compute_magnitude_and_gradient<<<grid, threads>>>(height, width, sobel_image_h_d, sobel_image_v_d, magnitude_d, gradient_direction_d);
+
+	cudaMemcpy(gradient_direction, gradient_direction_d, width*height*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(magnitude, magnitude_d, width*height, cudaMemcpyDeviceToHost);
+
+	stbi_image_free(sobel_image_v);
+	stbi_image_free(sobel_image_h);
+	stbi_write_png("./output_GPU/2_gradient_direction.png", width, height, 1, gradient_direction, width);
+	stbi_write_png("./output_GPU/2_magnitude.png", width, height, 1, magnitude, width);
 
 	// // Non-maximum suppression
 	// uint8_t* suppr_mag;
