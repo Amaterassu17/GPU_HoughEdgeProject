@@ -17,10 +17,10 @@
 
 //Should be the threshold based on the max magnitudes seen in the image. In our case most likely 255
 
-#define LAPLACIAN_GAUSSIAN 0
+#define LAPLACIAN_GAUSSIAN 1
 #define GAUSSIAN_KERNEL_SIZE 3
-#define GAUSSIAN_SIGMA 1.1
-
+#define GAUSSIAN_SIGMA 1.2
+#define SHARED 0
 
 
 
@@ -35,39 +35,27 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-	// Print the matrix kernel
-	//  if (i == 1 && j == 1 ){
-	//  	printf("Kernel: \n");
-	// 	for (int p = 0; p < kernel_size; p++) {
-	// 		for (int o = 0; o < kernel_size; o++) {
-	// 			printf("%f ", kernel[p * kernel_size + o]);
-	// 		}
-	// 	}
-	// 	printf("\n");
-	//  }
-
-	//print input image 
-	//printf("%u ", input[i * width + j]);
-
-	float sum = 0;
-
-	
 	if(i < height && j < width){
+		float sum = 0.0f; // Initialize sum to 0 inside the loop
+
 		for (int k = 0; k < kernel_size; k++)
 		{
 			for (int m = 0; m < kernel_size; m++)
 			{
-				sum += kernel[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)];
-				//sum +=  input[i * width + j];
+				int input_row = i + (k - 1);
+				int input_col = j + (m - 1);
+
+				// Check if the indices are within bounds
+				if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
+					sum += kernel[k * kernel_size + m] * input[input_row * width + input_col];
+				}
 			}
 		}
-	}
 
-	//printf("sum: %f\n", sum);
-	output[i * width + j] = (int)abs(sum);
-	if(output[i * width + j] != 0)
-		printf("output: %u\n", output[i * width + j]);
+		output[i * width + j] = (uint8_t)abs(sum);
+	}
 }
+
 
 __global__ void apply_filter_shared(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
 	extern __shared__ float kernel_shared[];
@@ -75,45 +63,41 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-	// for(int p = 0; p < kernel_size; p++){
-	// 	for(int o = 0; o < kernel_size; o++){
-	// 		printf("%f ", kernel[p*kernel_size + o]);
-	// 	}
-	// 	printf("\n");
-	// }
-
-
-	if(blockIdx.x < kernel_size && blockIdx.y < kernel_size){
-		kernel_shared[threadIdx.y*kernel_size + threadIdx.x] = kernel[threadIdx.y*kernel_size + threadIdx.x];
+	if (blockIdx.x < kernel_size && blockIdx.y < kernel_size) {
+		kernel_shared[threadIdx.y * kernel_size + threadIdx.x] = kernel[threadIdx.y * kernel_size + threadIdx.x];
 	}
 
-	if(i == 0 && j==0)
-	for(int p = 0; p < kernel_size; p++){
-		for(int o = 0; o < kernel_size; o++){
-			printf("%f ", kernel_shared[p*kernel_size + o]);
+	__syncthreads(); // Ensure all threads have finished copying to shared memory
+
+	if(threadIdx.x == 0 && threadIdx.y == 0){
+		printf("kernel size: %d\n", kernel_size);
+		for(int i = 0; i < kernel_size; i++){
+			for(int j = 0; j < kernel_size; j++){
+				printf("%f ", kernel_shared[i*kernel_size + j]);
+			}
+			printf("\n");
 		}
-		printf("\n");
 	}
-	
 
-	__syncthreads();
-
-
-	if(i < height && j < width){
+	if (i < height && j < width) {
 		float sum = 0;
 
-		for (int k = 0; k < kernel_size; k++)
-		{
-			for (int m = 0; m < kernel_size; m++)
-			{
-				sum += kernel_shared[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)];
-				//sum +=  input[i * width + j];
+		for (int k = 0; k < kernel_size; k++) {
+			for (int m = 0; m < kernel_size; m++) {
+				int input_row = i + (k - 1);
+				int input_col = j + (m - 1);
+
+				// Check if the indices are within bounds
+				if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
+					sum += kernel_shared[k * kernel_size + m] * input[input_row * width + input_col];
+				}
 			}
 		}
-		output[i * width + j] = (int)abs(sum);
-	}
 
+		output[i * width + j] = (uint8_t)abs(sum);
+	}
 }
+
 
 __global__ void apply_filter_shared_tiled(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
 	
@@ -388,25 +372,13 @@ int main(int argc, char *argv[])
 	//measure_time(true, file_times, "convert_to_greyscale");
 	// convert_to_greyscale(height, width, rgb_image, grey_image);
 	convert_to_greyscale<<<grid, threads>>>(height, width, rgb_image_d, grey_image_d);
-	cudaDeviceSynchronize(); // Synchronize with CUDA
 	cudaMemcpy(grey_image, grey_image_d, width*height, cudaMemcpyDeviceToHost);
 
-	//print
-	// for(int i = 0; i < height; i++){
-	// 	for(int j = 0; j < width; j++){
-	// 		printf("%d ", grey_image[i*width + j]);
-	// 	}
-	// 	printf("\n");
-	// }
-
-	//measure_time(false, file_times, "convert_to_greyscale");
 	stbi_image_free(rgb_image);
 	cudaFree(rgb_image_d);
 	stbi_write_png("./output_GPU/0_image_grey.png", width, height, 1, grey_image, width);
 
 	
-
-
 	// Apply Gaussian filtering
 	
 	auto kernel_size = GAUSSIAN_KERNEL_SIZE;
@@ -416,7 +388,6 @@ int main(int argc, char *argv[])
 	#else
 		float* gaussian_filter = get_gaussian_filter(kernel_size, sigma);
 	#endif
-	//float gaussian_filter[9] = {1,1,1,1,1,1,1,1,1};
 	for(int i = 0; i < kernel_size; i++){
 		for(int j = 0; j < kernel_size; j++){
 			std::cout<<gaussian_filter[i*kernel_size + j]<<" ";
@@ -430,53 +401,57 @@ int main(int argc, char *argv[])
     gaussian_image = (uint8_t*)malloc(width*height);
 	cudaMalloc(&gaussian_image_d, width*height);
 	cudaMalloc(&gaussian_filter_d, kernel_size*kernel_size*sizeof(float));
-	printf("Copying input data from the host memory to the CUDA device\n");
 	cudaMemcpy(gaussian_filter_d, gaussian_filter, kernel_size*kernel_size*sizeof(float), cudaMemcpyHostToDevice);	
-	printf("copied");
-	// static global memory version
-	apply_filter_global<<<grid, threads>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
 
-	//dinamic shared memory version
-	// apply_filter_shared<<<grid, threads, kernel_size*kernel_size*sizeof(float)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
-
+	#if SHARED
+		apply_filter_shared<<<grid, threads, kernel_size*kernel_size*sizeof(float)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+	#else
+		apply_filter_global<<<grid, threads>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+	#endif
 
 	cudaMemcpy(gaussian_image, gaussian_image_d, width*height, cudaMemcpyDeviceToHost);
-	//print image 
-	// for(int i = 0; i < height; i++){
-	// 	for(int j = 0; j < width; j++){
-	// 		printf("%u ", gaussian_image[i*width + j]);
-	// 	}
-	// 	printf("\n");
-	// }
-
-	//free(gaussian_filter);
 	stbi_image_free(grey_image);
 	stbi_write_png("./output_GPU/0_image_gaussian.png", width, height, 1, gaussian_image, width);
 
-
-	// measure_time(true, file_times, "apply_gaussian_filter");
-	// apply_filter(kernel_size, height, width, gaussian_image, grey_image, gaussian_filter);
-	// measure_time(false, file_times, "apply_gaussian_filter");
-
-	// stbi_image_free(grey_image);
-	// stbi_write_png("./output/0_image_gaussian.png", width, height, 1, gaussian_image, width);
 	
-	// // Apply Sobel filtering
-	// float sobel_h[kernel_size*kernel_size] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
-	// float sobel_v[kernel_size*kernel_size] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
-	// uint8_t* sobel_image_h;
-    // sobel_image_h = (uint8_t*)malloc(width*height);
-	// uint8_t* sobel_image_v;
-    // sobel_image_v = (uint8_t*)malloc(width*height);
 
-	// measure_time(true, file_times, "apply_sobel_filters");
-	// apply_filter(kernel_size, height, width, sobel_image_h, gaussian_image, sobel_h);
-	// apply_filter(kernel_size, height, width, sobel_image_v, gaussian_image, sobel_v);
-	// measure_time(false, file_times, "apply_sobel_filters");
+	//Apply 3x3 Sobel filtering
+	float sobel_h[9] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
+	float sobel_v[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
+	uint8_t* sobel_image_h;
+	uint8_t* sobel_image_v;
+	uint8_t* sobel_image_h_d;
+	uint8_t* sobel_image_v_d;
+	float* sobel_h_d;
+	float* sobel_v_d;
 
-    // stbi_image_free(gaussian_image);
-	// stbi_write_png("./output/1_image_sobel_h.png", width, height, 1, sobel_image_h, width);
-	// stbi_write_png("./output/1_image_sobel_v.png", width, height, 1, sobel_image_v, width);
+	sobel_image_h = (uint8_t*)malloc(width*height);
+	sobel_image_v = (uint8_t*)malloc(width*height);
+	cudaMalloc(&sobel_image_h_d, width*height);
+	cudaMalloc(&sobel_image_v_d, width*height);
+	cudaMalloc(&sobel_h_d, 9*sizeof(float));
+	cudaMalloc(&sobel_v_d, 9*sizeof(float));
+
+	cudaMemcpy(sobel_h_d, sobel_h, 9*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(sobel_v_d, sobel_v, 9*sizeof(float), cudaMemcpyHostToDevice);
+
+	#if SHARED
+		apply_filter_shared<<<grid, threads, 9*sizeof(float)>>>(3, height, width, sobel_image_h_d, gaussian_image_d, sobel_h_d);
+		apply_filter_shared<<<grid, threads, 9*sizeof(float)>>>(3, height, width, sobel_image_v_d, gaussian_image_d, sobel_v_d);
+	#else
+		apply_filter_global<<<grid, threads>>>(3, height, width, sobel_image_h_d, gaussian_image_d, sobel_h_d);
+		apply_filter_global<<<grid, threads>>>(3, height, width, sobel_image_v_d, gaussian_image_d, sobel_v_d);
+	#endif
+
+	cudaMemcpy(sobel_image_h, sobel_image_h_d, width*height, cudaMemcpyDeviceToHost);
+	cudaMemcpy(sobel_image_v, sobel_image_v_d, width*height, cudaMemcpyDeviceToHost);
+
+	stbi_image_free(gaussian_image);
+	stbi_write_png("./output_GPU/1_image_sobel_h.png", width, height, 1, sobel_image_h, width);
+	stbi_write_png("./output_GPU/1_image_sobel_v.png", width, height, 1, sobel_image_v, width);
+
+
+
 
 	// // Calculate magnitude and gradient direction
     // float* gradient_direction;
