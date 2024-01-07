@@ -15,13 +15,10 @@
 #define BLOCK_SIZE 16
 
 
-//Should be the threshold based on the max magnitudes seen in the image. In our case most likely 255
-
 #define LAPLACIAN_GAUSSIAN 1
 #define GAUSSIAN_KERNEL_SIZE 3
 #define GAUSSIAN_SIGMA 1.2
 #define SHARED 0
-
 
 
 #define MAX_THRESHOLD_MULT 0.15
@@ -34,7 +31,6 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 	
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
-
 
 	if(i < height && j < width){
 		float sum = 0.0f; // Initialize sum to 0 inside the loop
@@ -54,13 +50,14 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 		}
 
 		//printf("%f\n", sum);
-		output[i * width + j] = (uint8_t)abs(sum);
+		output[i * width + j] = round(sum);
 	}
 }
 
 
 __global__ void apply_filter_shared(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
 	extern __shared__ float kernel_shared[];
+	// maybe input could also be shared because every pixel is loaded 8 times (once for each neighbour)
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -102,7 +99,7 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 		}
 		
 
-		output[i * width + j] = (uint8_t)abs(sum);
+		output[i * width + j] = round(sum);
 	}
 }
 
@@ -130,7 +127,9 @@ __global__ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_
 
 __global__ void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t *Iy, uint8_t *mag, float *grad){
 
-	//can we use shared memory for this??
+	// can we use shared memory for this??
+	// I think not necessary because each thread accesses the corresponding element
+	// no two threads access the same element therefore shared memory doesn't save any memory loads
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -148,36 +147,42 @@ __global__ void compute_magnitude_and_gradient(int height, int width, uint8_t *I
 
 __global__ void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t *mag, float* grad){
 
-	int i= blockIdx.y * blockDim.y + threadIdx.y;
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	// here shared memory could be used to save some global loads from mag
 
 	if(i<height && j<width){
 		int q = 255;
 		int r = 255;
 
+		float grad_ij = grad[i*width+j];
+
 		//angle 0
-		if (0 <= grad[i*width+j] < 22.5 || 157.5 <= grad[i*width+j] <= 180){
+		if (0 <= grad_ij < 22.5 || 157.5 <= grad_ij <= 180){
 			q = mag[i*width + j+1];
 			r = mag[i*width + j-1];
 		}
 		//angle 45
-		else if (22.5 <= grad[i*width+j] < 67.5){
+		else if (22.5 <= grad_ij < 67.5){
 			q = mag[(i+1)*width + j-1];
 			r = mag[(i-1)*width + j+1];
 		}
 		//angle 90
-		else if (67.5 <= grad[i*width+j] < 112.5){
+		else if (67.5 <= grad_ij < 112.5){
 			q = mag[(i+1)*width + j];
 			r = mag[(i-1)*width + j];
 		}
 		//angle 135
-		else if (112.5 <= grad[i*width+j] < 157.5){
+		else if (112.5 <= grad_ij < 157.5){
 			q = mag[(i-1)*width + j-1];
 			r = mag[(i+1)*width + j+1];
 		}
 
-		if (mag[i*width + j] >= q && mag[i*width + j] >= r){
-			suppr_mag[i*width + j] = mag[i*width + j];
+		float mag_ij = mag[i*width + j];
+
+		if (mag_ij >= q && mag_ij >= r){
+			suppr_mag[i*width + j] = mag_ij;
 		} else {
 			suppr_mag[i*width + j] = 0;
 		}
@@ -222,6 +227,8 @@ __global__ void hysteresis(int height, int width, uint8_t *pixel_classification)
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	// here shared memory should be used to reduce so many global loads from pixel_classification
 
 	if(i < height && j < width){
 		if(pixel_classification[i*width+j] == 25){
@@ -594,7 +601,3 @@ int main(int argc, char *argv[])
 	stbi_write_png("./output_GPU/7_erosion.png", width, height, 1, erosion, width);
     return 0;
 }
-
-
-// TODOS:
-// zeit messen
