@@ -189,7 +189,15 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
   /usr/include/x86_64-linux-gnu/bits/mathcalls.h \
   /usr/include/x86_64-linux-gnu/bits/mathcalls-narrow.h \
   /usr/include/x86_64-linux-gnu/bits/iscanonical.h \
-  ../libs/stb_image.h \
+  /usr/include/c++/11/algorithm \
+  /usr/include/c++/11/utility \
+  /usr/include/c++/11/bits/stl_relops.h \
+  /usr/include/c++/11/bits/stl_algo.h \
+  /usr/include/c++/11/bits/algorithmfwd.h \
+  /usr/include/c++/11/bits/stl_heap.h \
+  /usr/include/c++/11/bits/stl_tempbuf.h \
+  /usr/include/c++/11/bits/uniform_int_dist.h \
+  ../stb_image.h \
   /usr/include/c++/11/stdlib.h \
   /usr/include/string.h \
   /usr/include/strings.h \
@@ -208,8 +216,19 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
   /usr/lib/gcc/x86_64-linux-gnu/11/include/xmmintrin.h \
   /usr/lib/gcc/x86_64-linux-gnu/11/include/mmintrin.h \
   /usr/lib/gcc/x86_64-linux-gnu/11/include/mm_malloc.h \
-  ../libs/stb_image_write.h
+  ../stb_image_write.h \
+  /usr/include/c++/11/chrono \
+  /usr/include/c++/11/ratio \
+  /usr/include/c++/11/limits \
+  /usr/include/c++/11/ctime \
+  /usr/include/c++/11/bits/parse_numbers.h
 
+
+/usr/include/c++/11/bits/parse_numbers.h:
+
+/usr/include/c++/11/limits:
+
+/usr/include/c++/11/ratio:
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/mmintrin.h:
 
@@ -221,13 +240,21 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 
 /usr/include/x86_64-linux-gnu/bits/posix1_lim.h:
 
-/usr/lib/gcc/x86_64-linux-gnu/11/include/syslimits.h:
-
 /usr/lib/gcc/x86_64-linux-gnu/11/include/limits.h:
 
 /usr/include/string.h:
 
 /usr/include/c++/11/stdlib.h:
+
+../stb_image.h:
+
+/usr/include/c++/11/bits/stl_heap.h:
+
+/usr/include/c++/11/bits/algorithmfwd.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/syslimits.h:
+
+/usr/include/c++/11/bits/stl_relops.h:
 
 /usr/include/x86_64-linux-gnu/bits/iscanonical.h:
 
@@ -238,6 +265,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/x86_64-linux-gnu/bits/flt-eval-method.h:
 
 /usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h:
+
+/usr/include/c++/11/bits/stl_algo.h:
 
 /usr/include/x86_64-linux-gnu/bits/math-vector.h:
 
@@ -293,13 +322,15 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 
 /usr/include/x86_64-linux-gnu/bits/errno.h:
 
-/usr/include/errno.h:
+/usr/include/c++/11/utility:
 
-../libs/stb_image_write.h:
+/usr/include/errno.h:
 
 /usr/include/c++/11/cerrno:
 
 /usr/include/stdio.h:
+
+/usr/include/c++/11/chrono:
 
 /usr/include/c++/11/cstdio:
 
@@ -316,6 +347,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/endian.h:
 
 /usr/include/x86_64-linux-gnu/sys/types.h:
+
+../stb_image_write.h:
 
 /usr/include/c++/11/math.h:
 
@@ -357,6 +390,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 
 /usr/include/c++/11/bits/range_access.h:
 
+/usr/include/c++/11/bits/stl_tempbuf.h:
+
 /usr/include/x86_64-linux-gnu/bits/types/__FILE.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/clock_t.h:
@@ -376,6 +411,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/x86_64-linux-gnu/bits/types/wint_t.h:
 
 /usr/include/x86_64-linux-gnu/bits/floatn-common.h:
+
+/usr/include/c++/11/bits/uniform_int_dist.h:
 
 /usr/include/c++/11/bits/cxxabi_init_exception.h:
 
@@ -438,6 +475,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/x86_64-linux-gnu/c++/11/bits/c++locale.h:
 
 /usr/include/c++/11/initializer_list:
+
+/usr/include/c++/11/ctime:
 
 /usr/include/x86_64-linux-gnu/bits/time64.h:
 
@@ -605,6 +644,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/c++allocator.h:
 
+/usr/include/c++/11/algorithm:
+
 /usr/include/x86_64-linux-gnu/bits/select.h:
 
 /usr/include/c++/11/iostream:
@@ -622,7 +663,5 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: ../main.cpp \
 /usr/include/c++/11/ext/alloc_traits.h:
 
 /usr/include/c++/11/bits/alloc_traits.h:
-
-../libs/stb_image.h:
 
 /usr/include/c++/11/bits/stl_construct.h:

@@ -10,11 +10,11 @@
 #include "stb_image_write.h"
 #include <chrono>
 
-#define M_PI 3.14159265358979323846
+
 
 #define LAPLACIAN_GAUSSIAN 1
 #define GAUSSIAN_KERNEL_SIZE 3
-#define GAUSSIAN_SIGMA 1.1
+#define GAUSSIAN_SIGMA 0.8
 
 #define MAX_THRESHOLD_MULT 0.15
 #define MIN_THRESHOLD_MULT 0.02
@@ -311,6 +311,13 @@ int main(int argc, char *argv[])
 		float* gaussian_filter = get_gaussian_filter(kernel_size, sigma);
 	#endif
 
+	for (int i = 0; i < kernel_size; i++){
+		for (int j = 0; j < kernel_size; j++){
+			printf("%f ", gaussian_filter[i*kernel_size + j]);
+		}
+		printf("\n");
+	}
+
 	uint8_t* gaussian_image;
     gaussian_image = (uint8_t*)malloc(width*height);
 
@@ -402,8 +409,13 @@ int main(int argc, char *argv[])
 	erosion = (uint8_t*)malloc(width*height);
 
 	//erosion kernel
-	auto erosion_kernel_size = 3;
-	float erosion_kernel[kernel_size*kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1};
+	auto erosion_kernel_size = 4;
+	float erosion_kernel[erosion_kernel_size*erosion_kernel_size] = {
+		1, 1, 1, 1,
+		1, 1, 1, 1,
+		1, 1, 1, 1,
+		1, 1, 1, 1
+	};
 
 	// auto erosion_kernel_size = 5;
 	// float erosion_kernel[erosion_kernel_size*erosion_kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 convert_to_greyscale: 0.010420 
 apply_gaussian_filter: 0.126893 
 apply_sobel_filters: 0.252898 
@@ -784,3 +785,5 @@ double_threshold: 0.000793
 hysteresis: 0.000152 
 dilation: 0.004870 
 erosion: 0.003128 
+=======
+>>>>>>> 6247c3c915dc8f3f8b99caf3a9ce578863a22dd5
