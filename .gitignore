@@ -1,0 +1,4 @@
+bin/output/*
+output/*
+main
+output_GPU/*
