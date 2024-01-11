@@ -13,12 +13,14 @@
 #include "stb_image_write.h"
 
 #define BLOCK_SIZE 16
+#define TILE_SIZE 16
 
 
 #define LAPLACIAN_GAUSSIAN 1
-#define GAUSSIAN_KERNEL_SIZE 3
+#define GAUSSIAN_KERNEL_SIZE 5
 #define GAUSSIAN_SIGMA 1.2
-#define SHARED 0
+#define SHARED 1
+#define TILED 1
 
 
 #define MAX_THRESHOLD_MULT 0.15
@@ -57,26 +59,16 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 
 __global__ void apply_filter_shared(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
 	extern __shared__ float kernel_shared[];
-	// maybe input could also be shared because every pixel is loaded 8 times (once for each neighbour)
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (blockIdx.x < kernel_size && blockIdx.y < kernel_size) {
+	if (threadIdx.x < kernel_size && threadIdx.y < kernel_size) {
 		kernel_shared[threadIdx.y * kernel_size + threadIdx.x] = kernel[threadIdx.y * kernel_size + threadIdx.x];
 	}
 
 	__syncthreads(); // Ensure all threads have finished copying to shared memory
 
-	// if(threadIdx.x == 0 && threadIdx.y == 0){
-	// 	printf("kernel size: %d\n", kernel_size);
-	// 	for(int i = 0; i < kernel_size; i++){
-	// 		for(int j = 0; j < kernel_size; j++){
-	// 			printf("%f ", kernel[i*kernel_size + j]);
-	// 		}
-	// 		printf("\n");
-	// 	}
-	// }
 
 	if (i < height && j < width) {
 		float sum = 0;
@@ -106,6 +98,51 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 
 __global__ void apply_filter_shared_tiled(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
 	
+	extern __shared__ float kernel_shared[];
+	__shared__ uint8_t input_shared[TILE_SIZE][TILE_SIZE];
+
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (threadIdx.x < kernel_size && threadIdx.y < kernel_size) {
+		kernel_shared[threadIdx.y * kernel_size + threadIdx.x] = kernel[threadIdx.y * kernel_size + threadIdx.x];
+		input_shared[threadIdx.y][threadIdx.x] = input[i*width + j];
+		//printf("loaded to shared memory");
+	}
+
+	if (threadIdx.x == 0 && threadIdx.y == 0){
+		printf("i = %d, j = %d, input_shared -> %d\n", i, j, input_shared[threadIdx.y][threadIdx.x]);
+	}
+
+
+	__syncthreads(); // Ensure all threads have finished copying to shared memory
+
+
+	if (i < height && j < width) {
+		float sum = 0;
+
+		// printf("%d, ", input[i*width + j]);
+		//printf("%f, %f, %f, %f, %f, %f, %f, %f, %f\n", kernel_shared[0], kernel_shared[1], kernel_shared[2], kernel_shared[3], kernel_shared[4], kernel_shared[5], kernel_shared[6], kernel_shared[7], kernel_shared[8]);
+		for (int k = 0; k < kernel_size; k++) {
+			for (int m = 0; m < kernel_size; m++) {
+				int input_row = i + (k - 1);
+				int input_col = j + (m - 1);
+
+				// Check if the indices are within bounds
+				if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
+					sum += kernel_shared[k * kernel_size + m] * input_shared[threadIdx.y + (k - 1)][threadIdx.x + (m - 1)];
+					if(threadIdx.x == 1 && threadIdx.y == 1){
+						//printf("k = %d, m= %d, kernel_shared -> %f, input -> %d\n",k,m, kernel_shared[k * kernel_size + m], input[input_row * width + input_col]);
+					}
+				}
+			}
+		}
+		
+
+		output[i * width + j] = round(sum);
+	}
+
+
 }
 
 __global__ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_t *grey_img)
@@ -450,10 +487,17 @@ int main(int argc, char *argv[])
 	cudaMalloc(&gaussian_filter_d, kernel_size*kernel_size*sizeof(float));
 	cudaMemcpy(gaussian_filter_d, gaussian_filter, kernel_size*kernel_size*sizeof(float), cudaMemcpyHostToDevice);	
 
-	#if SHARED
+	#if SHARED && TILED
+		printf("shared and tiled\n");
+		apply_filter_shared_tiled<<<grid, threads, kernel_size*kernel_size*sizeof(float) + sizeof(uint8_t)*(TILE_SIZE * TILE_SIZE)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+	#else
+	#if SHARED	
+		printf("shared\n");
 		apply_filter_shared<<<grid, threads, kernel_size*kernel_size*sizeof(float)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
 	#else
+		printf("global\n");
 		apply_filter_global<<<grid, threads>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+	#endif
 	#endif
 
 	cudaMemcpy(gaussian_image, gaussian_image_d, width*height, cudaMemcpyDeviceToHost);
