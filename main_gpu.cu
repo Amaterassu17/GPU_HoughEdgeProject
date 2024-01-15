@@ -15,10 +15,10 @@
 #define BLOCK_SIZE 16
 
 
-#define LAPLACIAN_GAUSSIAN 1
+#define LAPLACIAN_GAUSSIAN 0
 #define GAUSSIAN_KERNEL_SIZE 3
-#define GAUSSIAN_SIGMA 1.2
-#define SHARED 0
+#define GAUSSIAN_SIGMA 1.0
+#define SHARED 1
 
 
 #define MAX_THRESHOLD_MULT 0.15
@@ -28,6 +28,10 @@
 
 
 __global__ void apply_filter_global(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
+	
+	// for filtering it would also make sense to do both gaussian and sobel filter one after the other
+	// to avoid writing the output of gaussian to global
+	// maybe also the greyscaling
 	
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -50,7 +54,7 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 		}
 
 		//printf("%f\n", sum);
-		output[i * width + j] = round(sum);
+		output[i * width + j] = (uint8_t)abs(sum);
 	}
 }
 
@@ -62,7 +66,7 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (blockIdx.x < kernel_size && blockIdx.y < kernel_size) {
+	if (threadIdx.x < kernel_size && threadIdx.y < kernel_size) {
 		kernel_shared[threadIdx.y * kernel_size + threadIdx.x] = kernel[threadIdx.y * kernel_size + threadIdx.x];
 	}
 
@@ -99,7 +103,7 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 		}
 		
 
-		output[i * width + j] = round(sum);
+		output[i * width + j] = (uint8_t)abs(sum);
 	}
 }
 
@@ -139,7 +143,7 @@ __global__ void compute_magnitude_and_gradient(int height, int width, uint8_t *I
 		float dy = Iy[i*width+j];
 		mag[i*width+j] = (int)sqrt(dx*dx+dy*dy);
 		float angle = atan2(dy, dx)*180/M_PI;
-		grad[i*width+j] = angle < 180 ? angle+180 : angle;
+		grad[i*width+j] = angle < 0 ? angle+180 : angle;
 	}
 	
 
@@ -225,10 +229,10 @@ __global__ void double_threshold(int height, int width,  uint8_t *pixel_classifi
 
 __global__ void hysteresis(int height, int width, uint8_t *pixel_classification){
 
+	// TODO: implement like in paper
+	
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
-
-	// here shared memory should be used to reduce so many global loads from pixel_classification
 
 	if(i < height && j < width){
 		if(pixel_classification[i*width+j] == 25){
@@ -241,8 +245,6 @@ __global__ void hysteresis(int height, int width, uint8_t *pixel_classification)
 			}
 		}
 	}
-
-
 
 }
 

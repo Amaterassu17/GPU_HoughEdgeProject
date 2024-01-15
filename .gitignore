@@ -1,4 +1,6 @@
 bin/output/*
 output/*
 main
+main_gpu
 output_GPU/*
+.vscode/*

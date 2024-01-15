@@ -12,13 +12,13 @@
 
 
 
-#define LAPLACIAN_GAUSSIAN 1
+#define LAPLACIAN_GAUSSIAN 0
 #define GAUSSIAN_KERNEL_SIZE 3
-#define GAUSSIAN_SIGMA 0.8
+#define GAUSSIAN_SIGMA 1
 
-#define MAX_THRESHOLD_MULT 0.15
-#define MIN_THRESHOLD_MULT 0.02
-#define NON_MAX_SUPPR_THRESHOLD 0.4
+#define MAX_THRESHOLD_MULT 0.4
+#define MIN_THRESHOLD_MULT 0.1
+#define NON_MAX_SUPPR_THRESHOLD 1
 
 
 void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
@@ -37,7 +37,7 @@ void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8
 
 				}
 			}
-			output[i*width + j] = round(sum);
+			output[i*width + j] = abs(sum);
      	}
  	}
 }
@@ -61,9 +61,6 @@ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_t *grey_img
 }
 
 void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t *Iy, uint8_t *mag, float *grad){
-
-	float maximum_magnitude_value = round(sqrt(2*255*255));
-	float scalingFactor = 255.0 / (maximum_magnitude_value);
 	
 	for(int i = 1; i < height-1; i++)
  	{
@@ -71,9 +68,9 @@ void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t 
 	 	{
 			float dx = Ix[i*width+j];
 			float dy = Iy[i*width+j];
-			mag[i*width+j] = round(sqrt(dx*dx+dy*dy)*scalingFactor);
+			mag[i*width+j] = round(sqrt(dx*dx+dy*dy)); // divde by sqrt(2) for scaling?
 			float angle = atan2(dy, dx)*180/M_PI;
-			grad[i*width+j] = angle < 180 ? angle+180 : angle;
+			grad[i*width+j] = angle < 0 ? angle+180 : angle;
      	}
  	}
 }
@@ -118,6 +115,7 @@ void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t 
 			}
 
 			// Fine-tuning the threshold values
+			// actually there shouldn't be a threshold here
 			float threshold = NON_MAX_SUPPR_THRESHOLD; // Adjust this value to make the suppression less aggressive
 
 			if (mag[i*width + j] >= q * threshold && mag[i*width + j] >= r * threshold){
@@ -159,7 +157,7 @@ void double_threshold(int height, int width, uint8_t *pixel_classification, uint
 				pixel_classification[i * width + j] = 0;
 			} else {
 				// Weak pixels
-				pixel_classification[i * width + j] = 25;
+				pixel_classification[i * width + j] = 50;
 			}
 		}
 	}
@@ -171,7 +169,7 @@ void hysteresis(int height, int width, uint8_t *pixel_classification){
  	{
      	for(int j = 1; j < width-1; j++)
 	 	{
-			if(pixel_classification[i*width+j] == 25){
+			if(pixel_classification[i*width+j] == 50){
 				if(pixel_classification[(i+1)*width+j-1] == 255 || pixel_classification[(i+1)*width+j] == 255 || pixel_classification[(i+1)*width+j+1] == 255 ||
 				pixel_classification[i*width+j-1] == 255 || pixel_classification[i*width+j+1] == 255 || pixel_classification[(i-1)*width+j-1] == 255 ||
 				pixel_classification[(i-1)*width+j] == 255 || pixel_classification[(i-1)*width+j+1] == 255){
