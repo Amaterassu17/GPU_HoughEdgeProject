@@ -20,7 +20,7 @@
 #define GAUSSIAN_KERNEL_SIZE 3
 #define GAUSSIAN_SIGMA 1.0
 #define SHARED 1
-#define TILED 1
+#define TILED 0
 
 
 #define MAX_THRESHOLD_MULT 0.15
@@ -56,7 +56,7 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 		}
 
 		//printf("%f\n", sum);
-		output[i * width + j] = (uint8_t)abs(sum);
+		output[i * width + j] = abs(sum);
 	}
 }
 
@@ -95,7 +95,7 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 		}
 		
 
-		output[i * width + j] = (uint8_t)abs(sum);
+		output[i * width + j] = abs(sum);
 	}
 }
 
@@ -143,7 +143,7 @@ __global__ void apply_filter_shared_tiled(int kernel_size, int height, int width
 		}
 		
 
-		output[i * width + j] = round(sum);
+		output[i * width + j] = abs(sum);
 	}
 
 
@@ -178,7 +178,7 @@ __global__ void compute_magnitude_and_gradient(int height, int width, uint8_t *I
 	if(i < height && j < width){
 		float dx = Ix[i*width+j];
 		float dy = Iy[i*width+j];
-		mag[i*width+j] = (int)sqrt(dx*dx+dy*dy);
+		mag[i*width+j] = round(sqrt(dx*dx+dy*dy));
 		float angle = atan2(dy, dx)*180/M_PI;
 		grad[i*width+j] = angle < 0 ? angle+180 : angle;
 	}
