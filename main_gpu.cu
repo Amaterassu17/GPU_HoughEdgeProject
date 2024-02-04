@@ -114,6 +114,7 @@ __global__ void apply_filter_shared_tiled(int kernel_size, int height, int width
 	}
 
 	if (threadIdx.x == 0 && threadIdx.y == 0){
+		if(input_shared[threadIdx.y][threadIdx.x] != 0)
 		printf("i = %d, j = %d, input_shared -> %d\n", i, j, input_shared[threadIdx.y][threadIdx.x]);
 	}
 
@@ -544,8 +545,10 @@ int main(int argc, char *argv[])
 	cudaMemcpy(gaussian_filter_d, gaussian_filter, kernel_size*kernel_size*sizeof(float), cudaMemcpyHostToDevice);	
 
 	#if SHARED && TILED
+		auto tile_size_alt = TILE_SIZE + kernel_size - 1;
+		printf("%d\n", tile_size_alt);
 		printf("shared and tiled\n");
-		apply_filter_shared_tiled<<<grid, threads, kernel_size*kernel_size*sizeof(float) + sizeof(uint8_t)*(TILE_SIZE * TILE_SIZE)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+		apply_filter_shared_tiled<<<grid, threads, kernel_size*kernel_size*sizeof(float) + sizeof(uint8_t)*(tile_size_alt * tile_size_alt)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
 	#else
 	#if SHARED	
 		printf("shared\n");
