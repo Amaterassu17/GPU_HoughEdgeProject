@@ -6,19 +6,43 @@
 #include <stdint.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <cfloat>
+#include <assert.h>
+
+
+#define cdpErrchk(ans) { cdpAssert((ans), __FILE__, __LINE__); }
+__device__ void cdpAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess)
+   {
+      printf("GPU kernel assert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) assert(0);
+   }
+}
+
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
+
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#define BLOCK_SIZE 16
-#define TILE_SIZE 16
+#define BLOCK_SIZE 32
+#define TILE_SIZE 32
 
 
-#define LAPLACIAN_GAUSSIAN 0
-#define GAUSSIAN_KERNEL_SIZE 3
-#define GAUSSIAN_SIGMA 1.0
+#define LAPLACIAN_GAUSSIAN 1
+#define GAUSSIAN_KERNEL_SIZE 5
+#define GAUSSIAN_SIGMA 1.2
 #define SHARED 1
 #define TILED 0
 
@@ -26,7 +50,6 @@
 #define MAX_THRESHOLD_MULT 0.15
 #define MIN_THRESHOLD_MULT 0.02
 #define NON_MAX_SUPPR_THRESHOLD 0.4
-
 
 
 __global__ void apply_filter_global(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
@@ -272,6 +295,8 @@ __global__ void hysteresis(int height, int width, uint8_t *pixel_classification)
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
+
+	// printf("i = %d, j = %d\n", i, j);
 	if(i < height && j < width){
 		if(pixel_classification[i*width+j] == 25){
 			if(pixel_classification[(i+1)*width+j-1] == 255 || pixel_classification[(i+1)*width+j] == 255 || pixel_classification[(i+1)*width+j+1] == 255 ||
@@ -289,43 +314,56 @@ __global__ void hysteresis(int height, int width, uint8_t *pixel_classification)
 
 __global__ void apply_dilation(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
 {
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-int i = blockIdx.y * blockDim.y + threadIdx.y;
-int j = blockIdx.x * blockDim.x + threadIdx.x;
-
-// if(i < height && j < width){
-// 	float max_val = std::numeric_limits<float>::min();
-
-// 	for (int k = 0; k < kernel_size; k++) {
-// 		for (int m = 0; m < kernel_size; m++) {
-// 			float pixel_value = kernel[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)];
-// 			max_val = std::max(max_val, pixel_value);
-// 		}
-// 	}
-
-// 	output[i * width + j] = max_val;
-// }
+	//printall 9 kernel values without a for
+	printf("%f, %f, %f, %f, %f, %f, %f, %f, %f\n", kernel[0], kernel[1], kernel[2], kernel[3], kernel[4], kernel[5], kernel[6], kernel[7], kernel[8]);
+	
 
 
+    if (i >= 1 && i < height - 1 && j >= 1 && j < width - 1) {
+        uint8_t max_val = 0;
+        for (int k = 0; k < kernel_size; k++) {
+            for (int m = 0; m < kernel_size; m++) {
+                // Ensure valid indices for input array
+                int input_index = (i + (k - 1)) * width + j + (m - 1);
+                if (input_index >= 0 && input_index < height * width) {
+                    auto value = kernel[k * kernel_size + m] * input[input_index];
+                    max_val = max_val > value ? max_val : value;
+                } else {
+                    printf("Invalid input index: %d\n", input_index);
+                }
+            }
+        }
+        printf("Output[%d][%d] = %d\n", i, j, max_val);
+        output[i * width + j] = 4;
+    } else {
+        printf("Invalid pixel coordinates: (%d, %d)\n", i, j);
+    }
 }
+
+
 
 __global__ void apply_erosion(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
 {
 
 int i = blockIdx.y * blockDim.y + threadIdx.y;
 int j = blockIdx.x * blockDim.x + threadIdx.x;
+printf("cicaooo");
 
-// if(i < height && j < width){
-// 	float min_val = std::numeric_limits<float>::max();
+if(i < height && j < width){
+	uint8_t min_val = 255;
+	for (int k = 0; k < kernel_size; k++) {
+		for (int m = 0; m < kernel_size; m++) {
 
-// 	for (int k = 0; k < kernel_size; k++) {
-// 		for (int m = 0; m < kernel_size; m++) {
-// 			min_val = std::min(min_val, kernel[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)]);
-// 		}
-// 	}
-// 	output[i * width + j] = (int)min_val;
+			min_val = min_val < kernel[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)] ? min_val : kernel[k * kernel_size + m] * input[(i + (k - 1)) * width + j + (m - 1)];
 
-// }
+		}
+	}
+	output[i * width + j] = abs(min_val);
+
+}
 }
 
 
@@ -590,7 +628,7 @@ int main(int argc, char *argv[])
 	uint8_t* pixel_classification;
 	uint8_t* pixel_classification_d;
 	pixel_classification = (uint8_t*)malloc(width*height);
-	cudaMalloc(&pixel_classification_d, width*height);
+	cudaMalloc(&pixel_classification_d, width*height*sizeof(uint8_t));
 
 	double_threshold<<<grid, threads>>>(height, width, pixel_classification_d, suppr_mag_d);
 
@@ -610,23 +648,36 @@ int main(int argc, char *argv[])
 
 	//Dilation
 
+	
+
 	uint8_t* dilation;
 	uint8_t* dilation_d;
 	dilation = (uint8_t*)malloc(width*height);
-	cudaMalloc(&dilation_d, width*height);
+	cudaMalloc(&dilation_d, width*height*sizeof(uint8_t));
 
 	//dilation kernel
-	auto dilation_kernel_size = 3;
-	float dilation_kernel[dilation_kernel_size*dilation_kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1};
+	int dilation_kernel_size = 3;
+	float dilation_kernel[dilation_kernel_size * dilation_kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1};
 	float* dilation_kernel_d;
-	cudaMalloc(&dilation_kernel_d, dilation_kernel_size*dilation_kernel_size*sizeof(float));
-	cudaMemcpy(dilation_kernel_d, dilation_kernel, dilation_kernel_size*dilation_kernel_size*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMalloc(&dilation_kernel_d, dilation_kernel_size * dilation_kernel_size * sizeof(float));
+	cudaMemcpy(dilation_kernel_d, dilation_kernel, dilation_kernel_size * dilation_kernel_size * sizeof(float), cudaMemcpyHostToDevice);
 
-	apply_dilation<<<grid, threads>>>(dilation_kernel_size, height, width, dilation_d, pixel_classification_d, dilation_kernel);
+
+	printf("grids: %d, %d\n", grid.x, grid.y);
+	printf("threads: %d, %d\n", threads.x, threads.y);
+	apply_dilation<<<grid, threads, 0>>>(dilation_kernel_size, height, width, dilation_d, pixel_classification_d, dilation_kernel);
+
+    exit(-1);
 
 	cudaMemcpy(dilation, dilation_d, width*height, cudaMemcpyDeviceToHost);
 
-	stbi_write_png("./output_GPU/6_dilation.png", width, height, 1, dilation, width);
+	// for (int i = 0; i < width*height; i++){
+	// 		if(dilation[i] != 0)
+	// 		printf("i = %d, dilation = %d\n", i, dilation[i]);
+
+	// }
+
+	stbi_write_png("./output_GPU/67_dilation.png", width, height, 1, dilation, width);
 
 	// //Erosion
 
@@ -636,14 +687,15 @@ int main(int argc, char *argv[])
 	cudaMalloc(&erosion_d, width*height);
 
 	//erosion kernel
-	auto erosion_kernel_size = 3;
+	int erosion_kernel_size = 3;
 	float erosion_kernel[erosion_kernel_size*erosion_kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1};
 	float* erosion_kernel_d;
 	cudaMalloc(&erosion_kernel_d, erosion_kernel_size*erosion_kernel_size*sizeof(float));
 
 	cudaMemcpy(erosion_kernel_d, erosion_kernel, erosion_kernel_size*erosion_kernel_size*sizeof(float), cudaMemcpyHostToDevice);
 
-	apply_erosion<<<grid, threads>>>(erosion_kernel_size, height, width, erosion_d, dilation_d, erosion_kernel);
+
+	//apply_erosion<<<grid, threads>>>(erosion_kernel_size, height, width, erosion_d, dilation_d, erosion_kernel);
 
 	cudaMemcpy(erosion, erosion_d, width*height, cudaMemcpyDeviceToHost);
 
