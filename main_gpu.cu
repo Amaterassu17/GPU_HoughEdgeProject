@@ -677,7 +677,7 @@ int main(int argc, char *argv[])
 
 	// }
 
-	stbi_write_png("./output_GPU/67_dilation.png", width, height, 1, dilation, width);
+	stbi_write_png("./output_GPU/6_dilation.png", width, height, 1, dilation, width);
 
 	// //Erosion
 

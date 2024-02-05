@@ -12,13 +12,13 @@
 
 
 
-#define LAPLACIAN_GAUSSIAN 0
-#define GAUSSIAN_KERNEL_SIZE 3
-#define GAUSSIAN_SIGMA 1
+#define LAPLACIAN_GAUSSIAN 1
+#define GAUSSIAN_KERNEL_SIZE 5
+#define GAUSSIAN_SIGMA 1.2
 
-#define MAX_THRESHOLD_MULT 0.4
-#define MIN_THRESHOLD_MULT 0.1
-#define NON_MAX_SUPPR_THRESHOLD 1
+#define MAX_THRESHOLD_MULT 0.15
+#define MIN_THRESHOLD_MULT 0.02
+#define NON_MAX_SUPPR_THRESHOLD 0.4
 
 
 void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
