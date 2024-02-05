@@ -114,7 +114,6 @@ __global__ void apply_filter_shared_tiled(int kernel_size, int height, int width
 	}
 
 	if (threadIdx.x == 0 && threadIdx.y == 0){
-		if(input_shared[threadIdx.y][threadIdx.x] != 0)
 		printf("i = %d, j = %d, input_shared -> %d\n", i, j, input_shared[threadIdx.y][threadIdx.x]);
 	}
 
@@ -283,61 +282,80 @@ __global__ void hysteresis(int height, int width, uint8_t *pixel_classification)
 }
 
 __global__ void hysteresis_stack(int height, int width, uint8_t *pixel_classification){
-
-	// TODO: implement like in paper
-
-	extern __shared__ int stack_idxs[];
+		
+	extern __shared__ int stack_sdata[];
 	__shared__ int stack_depth;
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
+	
+	if(threadIdx.x == 0 && threadIdx.y == 0)
+		stack_depth = 0;
+	__syncthreads();
 
-	// randbedingungen behandeln, wenn i, j außerhalb des bildes
-	if(i < height && j < width){
-		if(pixel_classification[i*width+j] == 255){ // pixel is a strong edge pixel
-			for(l=-1; l<2; l++){
-				for(m=-1; m<1; m++){
-					int index = (i+l)*width+(j+m);
-					// i = index % width;
-					// j = index - i*width;
-					if(pixel_classification[index] == 50){
-						// neighbour is weak edge pixel -> push to stack
-						int tmp_stack_depth = atomicAdd(stack_depth, 1)
-						stack_sdata[tmp_stack_depth] = index;
-					}
+	// pixel is a strong edge pixel
+	if(i < height && j < width && pixel_classification[i*width+j] == 255){
+		for(int l=-1; l<2; l++){
+			for(int m=-1; m<1; m++){
+				int index = (i+l)*width+(j+m);
+				if((i+l) > 0 && (j+m) > 0 && (i+l) < height & (j+m) < width &&
+					pixel_classification[index] == 50){
+					// neighbour is weak edge pixel -> push to stack
+					int tmp_stack_depth = atomicAdd(&stack_depth, 1);
+					stack_sdata[tmp_stack_depth] = index;
 				}
-			}
-			__syncthreads(); // is this correct here? now all neighbouring weak edge pixels should be pushed
-			// though not necessarily in the right order but i think it doesn't matter here
-
-			while(stack_depth > 0){
-				__syncthreads();
-				// tmp_stack_depth stores value before 1 was subtracted
-				int tmp_stack_depth = atomicSub(stack_depth, 1)
-				// TODO: make sure that stack_depth doesn_t become negative
-				if(tmp_stack_depth > 0){
-					// every stack pops a different element
-					int index = stack_sdata[tmp_stack_depth-1];
-					// set current one final edge pixel
-					pixel_classification[index] = 255;
-					int i_top = index % width;
-					int j_top = index - i_top*width;
-					for(l=-1; l<2; l++){
-						for(m=-1; m<1; m++){
-							int new_idx = (i_top+l)*width+(j_top+m);
-							if(pixel_classification[new_idx] == 50 && m != 0 && l !=0){
-								// neighbour is weak edge pixel -> push to stack
-								int tmp_stack_depth = atomicAdd(stack_depth, 1)
-								stack_sdata[tmp_stack_depth] = new_idx;
-							}
-						}
-					}
-				} else {
-					stack_depth = 0;
-				}	
 			}
 		}
 	}
+	// max 8 * width*height ints on the stack if image is completely white
+	// that's 8 * 1024 * 1024 = 8* 10^6 ints
+	// does it fit in shared memory?
+	// one int is 4B
+	// = 32 * 10^6 B = 32 000 kB (but we only have 48kB)
+	// which means a stack depth of 12 000
+	// ahhh but we are tiling so it should be fine
+	__syncthreads(); // is this correct here? now all neighbouring weak edge pixels should be pushed
+	// though not necessarily in the right order but i think it doesn't matter here
+	
+	while(stack_depth > 0){
+		// tmp_stack_depth stores value before 1 was subtracted
+		int tmp_stack_depth = atomicSub(&stack_depth, 1);
+
+		if(tmp_stack_depth > 0){
+			// every stack pops a different element
+			int index = stack_sdata[tmp_stack_depth-1];
+			// set current one to final edge pixel
+			pixel_classification[index] = 255;
+			int i_top = index % width;
+			int j_top = index - i_top*width;
+			for(int l=-1; l<2; l++){
+				for(int m=-1; m<1; m++){
+					int new_idx = (i_top+l)*width+(j_top+m);
+					if(m != 0 && l !=0 && (i_top+l) > 0 && (j_top+m) > 0 && (i_top+l) < height & (j_top+m) < width &&
+					pixel_classification[new_idx] == 50){
+						// neighbour is valid weak edge pixel -> push to stack
+						int tmp_stack_depth = atomicAdd(&stack_depth, 1);
+						stack_sdata[tmp_stack_depth] = new_idx;
+					}
+				}
+			}
+		} else {
+			// subtracted one to many, add one
+			atomicAdd(&stack_depth, 1);
+		}
+	}
+
+	__syncthreads();
+
+	// remove remaining weak edge pixels
+	if(i < height && j < width && pixel_classification[i*width+j] == 50){
+		//printf("%d removing weak pixels \n", 2);
+		pixel_classification[i*width+j] = 0;
+	} else{
+		//printf("%d %d, %d why not executing \n", i, j, pixel_classification[i*width+j]);
+	}
+
+	__syncthreads();
 }
 
 
@@ -545,10 +563,8 @@ int main(int argc, char *argv[])
 	cudaMemcpy(gaussian_filter_d, gaussian_filter, kernel_size*kernel_size*sizeof(float), cudaMemcpyHostToDevice);	
 
 	#if SHARED && TILED
-		auto tile_size_alt = TILE_SIZE + kernel_size - 1;
-		printf("%d\n", tile_size_alt);
 		printf("shared and tiled\n");
-		apply_filter_shared_tiled<<<grid, threads, kernel_size*kernel_size*sizeof(float) + sizeof(uint8_t)*(tile_size_alt * tile_size_alt)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+		apply_filter_shared_tiled<<<grid, threads, kernel_size*kernel_size*sizeof(float) + sizeof(uint8_t)*(TILE_SIZE * TILE_SIZE)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
 	#else
 	#if SHARED	
 		printf("shared\n");
@@ -651,11 +667,12 @@ int main(int argc, char *argv[])
 	cudaMemcpy(pixel_classification, pixel_classification_d, width*height, cudaMemcpyDeviceToHost);
 	
 	stbi_write_png("./output_GPU/4_thresholded.png", width, height, 1, pixel_classification, width);
-
+	
 	cudaEvent_t start, stop;
   	float msecTotal;
     cudaEventCreate(&start);
 	cudaEventRecord(start, NULL);
+	//hysteresis_stack<<<grid, threads, 47 * 1024>>>(height, width, pixel_classification_d);
 	hysteresis<<<grid, threads>>>(height, width, pixel_classification_d);
 	cudaEventCreate(&stop);
   	cudaEventRecord(stop, NULL);
