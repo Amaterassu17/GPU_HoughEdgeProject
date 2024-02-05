@@ -282,7 +282,7 @@ int main(int argc, char *argv[])
 	auto img_fname = argc>=2 ? argv[1] : "image.png";
 
 	system("mkdir -p output");
-	auto file_times = fopen("./output/times.txt", "a");
+	auto file_times = fopen("./output/times_Canny.txt", "a");
 	
 	uint8_t* rgb_image = stbi_load(img_fname, &width, &height, &bpp, 3);
 
