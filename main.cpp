@@ -12,9 +12,9 @@
 
 
 
-#define LAPLACIAN_GAUSSIAN 1
+#define LAPLACIAN_GAUSSIAN 0
 #define GAUSSIAN_KERNEL_SIZE 5
-#define GAUSSIAN_SIGMA 1.2
+#define GAUSSIAN_SIGMA 1.0
 
 #define MAX_THRESHOLD_MULT 0.15
 #define MIN_THRESHOLD_MULT 0.02
@@ -33,8 +33,11 @@ void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8
 	 		{
 				for(int m = 0; m < kernel_size; m++)
 	 			{
-					sum += kernel[k*kernel_size + m]*input[(i+(k-1))*width + j + (m-1)];
-
+					int input_row = i+(k-1);
+					int input_col = j+(m-1);
+					if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
+						sum += kernel[k * kernel_size + m]*input[input_row * width + input_col];
+					}
 				}
 			}
 			output[i*width + j] = abs(sum);

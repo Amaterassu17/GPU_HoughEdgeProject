@@ -36,13 +36,13 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#define BLOCK_SIZE 32
-#define TILE_SIZE 32
+#define BLOCK_SIZE 16
+#define TILE_SIZE 16
 
 
-#define LAPLACIAN_GAUSSIAN 1
-#define GAUSSIAN_KERNEL_SIZE 5
-#define GAUSSIAN_SIGMA 1.2
+#define LAPLACIAN_GAUSSIAN 0
+#define GAUSSIAN_KERNEL_SIZE 3
+#define GAUSSIAN_SIGMA 1.0
 #define SHARED 0
 #define TILED 0
 
@@ -52,17 +52,13 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 #define NON_MAX_SUPPR_THRESHOLD 0.4
 
 
-__global__ void apply_filter_global(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, double *kernel){
-	
-	// for filtering it would also make sense to do both gaussian and sobel filter one after the other
-	// to avoid writing the output of gaussian to global
-	// maybe also the greyscaling
+__global__ void apply_filter_global(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
 	
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
 	if(i < height && j < width){
-		double sum = 0.0f; // Initialize sum to 0 inside the loop
+		float sum = 0.0f; // Initialize sum to 0 inside the loop
 
 		for (int k = 0; k < kernel_size; k++)
 		{
@@ -74,12 +70,11 @@ __global__ void apply_filter_global(int kernel_size, int height, int width, uint
 				// Check if the indices are within bounds
 				if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
 					sum += kernel[k * kernel_size + m] * input[input_row * width + input_col];
-				}
+				}	
 			}
 		}
 
-		//printf("%f\n", sum);
-		output[i * width + j] = abs((uint8_t)sum);
+		output[i * width + j] = abs(sum);
 	}
 }
 
@@ -96,12 +91,8 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 
 	__syncthreads(); // Ensure all threads have finished copying to shared memory
 
-
 	if (i < height && j < width) {
 		float sum = 0;
-
-		// printf("%d, ", input[i*width + j]);
-		//printf("%f, %f, %f, %f, %f, %f, %f, %f, %f\n", kernel_shared[0], kernel_shared[1], kernel_shared[2], kernel_shared[3], kernel_shared[4], kernel_shared[5], kernel_shared[6], kernel_shared[7], kernel_shared[8]);
 		for (int k = 0; k < kernel_size; k++) {
 			for (int m = 0; m < kernel_size; m++) {
 				int input_row = i + (k - 1);
@@ -110,9 +101,6 @@ __global__ void apply_filter_shared(int kernel_size, int height, int width, uint
 				// Check if the indices are within bounds
 				if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
 					sum += kernel_shared[k * kernel_size + m] * input[input_row * width + input_col];
-					if(threadIdx.x == 1 && threadIdx.y == 1){
-						//printf("k = %d, m= %d, kernel_shared -> %f, input -> %d\n",k,m, kernel_shared[k * kernel_size + m], input[input_row * width + input_col]);
-					}
 				}
 			}
 		}
@@ -192,9 +180,6 @@ __global__ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_
 
 __global__ void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t *Iy, uint8_t *mag, float *grad){
 
-	// can we use shared memory for this??
-	// I think not necessary because each thread accesses the corresponding element
-	// no two threads access the same element therefore shared memory doesn't save any memory loads
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -256,14 +241,7 @@ __global__ void non_maximum_suppression(int height, int width, uint8_t *suppr_ma
 
 }
 
-__global__ void double_threshold(int height, int width,  uint8_t *pixel_classification,  uint8_t *suppr_mag){
-
-	// float high_threshold = 0.09*255;
-	// float low_threshold = high_threshold*0.05;
-
-
-	
-	
+__global__ void float_threshold(int height, int width,  uint8_t *pixel_classification,  uint8_t *suppr_mag){
 
 	float high_threshold = 0.09*255;
 	float low_threshold = high_threshold*0.05;
@@ -283,9 +261,6 @@ __global__ void double_threshold(int height, int width,  uint8_t *pixel_classifi
 			pixel_classification[i*width+j] = 25;
 		}
 	}
-
-
-
 }
 
 __global__ void hysteresis(int height, int width, uint8_t *pixel_classification){
@@ -317,11 +292,6 @@ __global__ void apply_dilation(int kernel_size, int height, int width, uint8_t *
     int i = blockIdx.y * blockDim.y + threadIdx.y;
     int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-	//printall 9 kernel values without a for
-	printf("%f, %f, %f, %f, %f, %f, %f, %f, %f\n", kernel[0], kernel[1], kernel[2], kernel[3], kernel[4], kernel[5], kernel[6], kernel[7], kernel[8]);
-	
-
-
     if (i >= 1 && i < height - 1 && j >= 1 && j < width - 1) {
         uint8_t max_val = 0;
         for (int k = 0; k < kernel_size; k++) {
@@ -333,10 +303,7 @@ __global__ void apply_dilation(int kernel_size, int height, int width, uint8_t *
                 
             }
         }
-        printf("Output[%d][%d] = %d\n", i, j, max_val);
         output[i * width + j] = abs(max_val);
-    } else {
-        printf("Invalid pixel coordinates: (%d, %d)\n", i, j);
     }
 }
 
@@ -347,7 +314,6 @@ __global__ void apply_erosion(int kernel_size, int height, int width, uint8_t *o
 
 int i = blockIdx.y * blockDim.y + threadIdx.y;
 int j = blockIdx.x * blockDim.x + threadIdx.x;
-printf("cicaooo");
 
 if(i < height && j < width){
 	uint8_t min_val = 255;
@@ -371,17 +337,17 @@ if(i < height && j < width){
 // 		start_time = std::chrono::system_clock::now();
 // 	} else {
 // 		end_time = std::chrono::system_clock::now();
-// 		std::chrono::duration<double> duration = end_time - start_time;
+// 		std::chrono::duration<float> duration = end_time - start_time;
 // 		fprintf(file_times, "%s: %f \n", name.c_str(), duration.count());
 // 	}
 // }
 
-double* get_gaussian_filter (int kernel_size, float sigma){
+float* get_gaussian_filter (int kernel_size, float sigma){
 
 	kernel_size = kernel_size%2 == 0 ? kernel_size-1 : kernel_size;
 
-	double* gaussian_filter = (double*)malloc(kernel_size*kernel_size*sizeof(double));
-	double sum = 0.0;
+	float* gaussian_filter = (float*)malloc(kernel_size*kernel_size*sizeof(float));
+	float sum = 0.0;
 	for(int i = 0; i < kernel_size; i++){
 		for(int j = 0; j < kernel_size; j++){
 			gaussian_filter[i*kernel_size + j] = exp(-(i*i+j*j)/(2*sigma*sigma))/(2*M_PI*sigma*sigma);
@@ -397,9 +363,9 @@ double* get_gaussian_filter (int kernel_size, float sigma){
 
 }
 
-double* get_gaussian_laplacian_filter (int kernel_size, float sigma){
-	double* gaussian_filter = (double*)malloc(kernel_size*kernel_size*sizeof(double));
-	double sum = 0.0;
+float* get_gaussian_laplacian_filter (int kernel_size, float sigma){
+	float* gaussian_filter = (float*)malloc(kernel_size*kernel_size*sizeof(float));
+	float sum = 0.0;
 	for(int i = 0; i < kernel_size; i++){
 		for(int j = 0; j < kernel_size; j++){
 			gaussian_filter[i*kernel_size + j] = (((i*i+j*j)/(2*sigma*sigma))-1)*exp(-(i*i+j*j)/(2*sigma*sigma))/(M_PI*sigma*sigma*sigma*sigma);
@@ -506,9 +472,9 @@ int main(int argc, char *argv[])
 	auto kernel_size = GAUSSIAN_KERNEL_SIZE;
 	float sigma = GAUSSIAN_SIGMA;
 	#if LAPLACIAN_GAUSSIAN
-		double* gaussian_filter = get_gaussian_laplacian_filter(kernel_size, sigma);
+		float* gaussian_filter = get_gaussian_laplacian_filter(kernel_size, sigma);
 	#else
-		double* gaussian_filter = get_gaussian_filter(kernel_size, sigma);
+		float* gaussian_filter = get_gaussian_filter(kernel_size, sigma);
 	#endif
 	for(int i = 0; i < kernel_size; i++){
 		for(int j = 0; j < kernel_size; j++){
@@ -519,21 +485,21 @@ int main(int argc, char *argv[])
 
 	uint8_t* gaussian_image;
 	uint8_t* gaussian_image_d;
-	double* gaussian_filter_d;
+	float* gaussian_filter_d;
     gaussian_image = (uint8_t*)malloc(width*height);
 	cudaMalloc(&gaussian_image_d, width*height);
-	cudaMalloc(&gaussian_filter_d, kernel_size*kernel_size*sizeof(double));
-	cudaMemcpy(gaussian_filter_d, gaussian_filter, kernel_size*kernel_size*sizeof(double), cudaMemcpyHostToDevice);	
+	cudaMalloc(&gaussian_filter_d, kernel_size*kernel_size*sizeof(float));
+	cudaMemcpy(gaussian_filter_d, gaussian_filter, kernel_size*kernel_size*sizeof(float), cudaMemcpyHostToDevice);	
 
 	#if SHARED && TILED
 		auto tile_size_alt = TILE_SIZE + kernel_size - 1;
 		printf("%d\n", tile_size_alt);
 		printf("shared and tiled\n");
-		apply_filter_shared_tiled<<<grid, threads, kernel_size*kernel_size*sizeof(double) + sizeof(uint8_t)*(tile_size_alt * tile_size_alt)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+		apply_filter_shared_tiled<<<grid, threads, kernel_size*kernel_size*sizeof(float) + sizeof(uint8_t)*(tile_size_alt * tile_size_alt)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
 	#else
 	#if SHARED	
 		printf("shared\n");
-		apply_filter_shared<<<grid, threads, kernel_size*kernel_size*sizeof(double)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
+		apply_filter_shared<<<grid, threads, kernel_size*kernel_size*sizeof(float)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
 	#else
 		printf("global\n");
 		apply_filter_global<<<grid, threads>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, gaussian_filter_d);
@@ -547,28 +513,28 @@ int main(int argc, char *argv[])
 	
 
 	//Apply 3x3 Sobel filtering
-	double sobel_h[9] = {-1.0f, 0.0f, 1.0f, -2.0f, 0.0f, 2.0f, -1.0f, 0.0f, 1.0f};
-	double sobel_v[9] = {1.0f, 2.0f, 1.0f, 0.0f, 0.0f, 0.0f, -1.0f, -2.0f, -1.0f};
+	float sobel_h[9] = {-1.0f, 0.0f, 1.0f, -2.0f, 0.0f, 2.0f, -1.0f, 0.0f, 1.0f};
+	float sobel_v[9] = {1.0f, 2.0f, 1.0f, 0.0f, 0.0f, 0.0f, -1.0f, -2.0f, -1.0f};
 	uint8_t* sobel_image_h;
 	uint8_t* sobel_image_v;
 	uint8_t* sobel_image_h_d;
 	uint8_t* sobel_image_v_d;
-	double* sobel_h_d;
-	double* sobel_v_d;
+	float* sobel_h_d;
+	float* sobel_v_d;
 
 	sobel_image_h = (uint8_t*)malloc(width*height);
 	sobel_image_v = (uint8_t*)malloc(width*height);
 	cudaMalloc(&sobel_image_h_d, width*height);
 	cudaMalloc(&sobel_image_v_d, width*height);
-	cudaMalloc(&sobel_h_d, 9*sizeof(double));
-	cudaMalloc(&sobel_v_d, 9*sizeof(double));
+	cudaMalloc(&sobel_h_d, 9*sizeof(float));
+	cudaMalloc(&sobel_v_d, 9*sizeof(float));
 
-	cudaMemcpy(sobel_h_d, sobel_h, 9*sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(sobel_v_d, sobel_v, 9*sizeof(double), cudaMemcpyHostToDevice);
+	cudaMemcpy(sobel_h_d, sobel_h, 9*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(sobel_v_d, sobel_v, 9*sizeof(float), cudaMemcpyHostToDevice);
 
 	#if SHARED
-		apply_filter_shared<<<grid, threads, 9*sizeof(double)>>>(3, height, width, sobel_image_h_d, gaussian_image_d, sobel_h_d);
-		apply_filter_shared<<<grid, threads, 9*sizeof(double)>>>(3, height, width, sobel_image_v_d, gaussian_image_d, sobel_v_d);
+		apply_filter_shared<<<grid, threads, 9*sizeof(float)>>>(3, height, width, sobel_image_h_d, gaussian_image_d, sobel_h_d);
+		apply_filter_shared<<<grid, threads, 9*sizeof(float)>>>(3, height, width, sobel_image_v_d, gaussian_image_d, sobel_v_d);
 	#else
 		apply_filter_global<<<grid, threads>>>(3, height, width, sobel_image_h_d, gaussian_image_d, sobel_h_d);
 		apply_filter_global<<<grid, threads>>>(3, height, width, sobel_image_v_d, gaussian_image_d, sobel_v_d);
@@ -621,13 +587,13 @@ int main(int argc, char *argv[])
 	stbi_image_free(gradient_direction);
 	stbi_write_png("./output_GPU/3_nonmax_suppr.png", width, height, 1, suppr_mag, width);
 
-	// // Double thresholding and edge tracking by hysteresis
+	// // float thresholding and edge tracking by hysteresis
 	uint8_t* pixel_classification;
 	uint8_t* pixel_classification_d;
 	pixel_classification = (uint8_t*)malloc(width*height);
 	cudaMalloc(&pixel_classification_d, width*height*sizeof(uint8_t));
 
-	double_threshold<<<grid, threads>>>(height, width, pixel_classification_d, suppr_mag_d);
+	float_threshold<<<grid, threads>>>(height, width, pixel_classification_d, suppr_mag_d);
 
 	cudaMemcpy(pixel_classification, pixel_classification_d, width*height, cudaMemcpyDeviceToHost);
 	
@@ -654,7 +620,7 @@ int main(int argc, char *argv[])
 
 	//dilation kernel
 	int dilation_kernel_size = 3;
-	float dilation_kernel[dilation_kernel_size * dilation_kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1};
+	float dilation_kernel[dilation_kernel_size * dilation_kernel_size] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 	float* dilation_kernel_d;
 	cudaMalloc(&dilation_kernel_d, dilation_kernel_size * dilation_kernel_size * sizeof(float));
 	cudaMemcpy(dilation_kernel_d, dilation_kernel, dilation_kernel_size * dilation_kernel_size * sizeof(float), cudaMemcpyHostToDevice);
@@ -662,7 +628,7 @@ int main(int argc, char *argv[])
 
 	printf("grids: %d, %d\n", grid.x, grid.y);
 	printf("threads: %d, %d\n", threads.x, threads.y);
-	apply_dilation<<<grid, threads, 0>>>(dilation_kernel_size, height, width, dilation_d, pixel_classification_d, dilation_kernel);
+	apply_dilation<<<grid, threads, 0>>>(dilation_kernel_size, height, width, dilation_d, pixel_classification_d, dilation_kernel_d);
 
 
 	cudaMemcpy(dilation, dilation_d, width*height, cudaMemcpyDeviceToHost);
@@ -684,14 +650,14 @@ int main(int argc, char *argv[])
 
 	//erosion kernel
 	int erosion_kernel_size = 3;
-	float erosion_kernel[erosion_kernel_size*erosion_kernel_size] = {1, 1, 1, 1, 1, 1, 1, 1, 1};
+	float erosion_kernel[erosion_kernel_size*erosion_kernel_size] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 	float* erosion_kernel_d;
 	cudaMalloc(&erosion_kernel_d, erosion_kernel_size*erosion_kernel_size*sizeof(float));
 
 	cudaMemcpy(erosion_kernel_d, erosion_kernel, erosion_kernel_size*erosion_kernel_size*sizeof(float), cudaMemcpyHostToDevice);
 
 
-	//apply_erosion<<<grid, threads>>>(erosion_kernel_size, height, width, erosion_d, dilation_d, erosion_kernel);
+	apply_erosion<<<grid, threads>>>(erosion_kernel_size, height, width, erosion_d, dilation_d, erosion_kernel_d);
 
 	cudaMemcpy(erosion, erosion_d, width*height, cudaMemcpyDeviceToHost);
 
