@@ -13,12 +13,12 @@
 
 
 #define LAPLACIAN_GAUSSIAN 0
-#define GAUSSIAN_KERNEL_SIZE 5
-#define GAUSSIAN_SIGMA 1.0
+#define GAUSSIAN_KERNEL_SIZE 3
+#define GAUSSIAN_SIGMA 1
 
-#define MAX_THRESHOLD_MULT 0.15
-#define MIN_THRESHOLD_MULT 0.02
-#define NON_MAX_SUPPR_THRESHOLD 0.4
+#define MAX_THRESHOLD_MULT 0.4
+#define MIN_THRESHOLD_MULT 0.1
+#define NON_MAX_SUPPR_THRESHOLD 1
 
 
 void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
@@ -33,11 +33,8 @@ void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8
 	 		{
 				for(int m = 0; m < kernel_size; m++)
 	 			{
-					int input_row = i+(k-1);
-					int input_col = j+(m-1);
-					if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
-						sum += kernel[k * kernel_size + m]*input[input_row * width + input_col];
-					}
+					sum += kernel[k*kernel_size + m]*input[(i+(k-1))*width + j + (m-1)];
+
 				}
 			}
 			output[i*width + j] = abs(sum);
@@ -285,7 +282,7 @@ int main(int argc, char *argv[])
 	auto img_fname = argc>=2 ? argv[1] : "image.png";
 
 	system("mkdir -p output");
-	auto file_times = fopen("./output/times.txt", "a");
+	auto file_times = fopen("./output/times_Canny.txt", "a");
 	
 	uint8_t* rgb_image = stbi_load(img_fname, &width, &height, &bpp, 3);
 
