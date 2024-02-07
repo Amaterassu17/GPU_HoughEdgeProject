@@ -12,9 +12,9 @@
 
 
 
-#define LAPLACIAN_GAUSSIAN 0
-#define GAUSSIAN_KERNEL_SIZE 3
-#define GAUSSIAN_SIGMA 1
+#define LAPLACIAN_GAUSSIAN 1
+#define GAUSSIAN_KERNEL_SIZE 5
+#define GAUSSIAN_SIGMA 1.0
 
 #define MAX_THRESHOLD_MULT 0.4
 #define MIN_THRESHOLD_MULT 0.1
@@ -221,6 +221,67 @@ void apply_erosion(int kernel_size, int height, int width, uint8_t *output, uint
 	}
 }
 
+void hough_transform(int height, int width, uint8_t *img, uint8_t *output){
+	
+	auto channels = 3;
+	int max_rho = (int)std::sqrt(width*width + height*height);
+	int max_theta = 180;
+	int *hough_space = new int[max_rho * max_theta];
+	std::fill(hough_space, hough_space + max_rho * max_theta, 0);
+
+	for(int y = 0; y < height; y++){
+		for(int x = 0; x < width; x++){
+			if(img[y * width + x] < 128){
+				for(int theta = 0; theta < max_theta; theta++){
+					float rho = x * std::cos(theta * M_PI / 180) + y * std::sin(theta * M_PI / 180);
+					int rho_idx = (int)rho + max_rho / 2;
+					if(rho_idx >= 0 && rho_idx < max_rho) {
+						hough_space[rho_idx * max_theta + theta]++;
+					}
+				}
+			}
+		}
+	}
+
+	int max_hough = *std::max_element(hough_space, hough_space + max_rho * max_theta);
+
+	// Copy the image into the output with the 3 channels
+	for(int i = 0; i < height; i++){
+		for(int j = 0; j < width; j++){
+			output[(i * width + j) * channels] = img[i * width + j];
+			output[(i * width + j) * channels + 1] = img[i * width + j];
+			output[(i * width + j) * channels + 2] = img[i * width + j];
+		}
+	}
+
+	for(int rho_idx = 0; rho_idx < max_rho; rho_idx++){
+		for(int theta = 0; theta < max_theta; theta++){
+			if(hough_space[rho_idx * max_theta + theta] > max_hough * 0.5){
+				float rho = rho_idx - max_rho / 2;
+				for(int x = 0; x < width; x++){
+					int y = (int)((rho - x * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
+					if(y >= 0 && y < height){
+						output[(y * width + x) * channels] = 255;
+						output[(y * width + x) * channels + 1] = 0;
+						output[(y * width + x) * channels + 2] = 0;
+					}
+				}
+				for(int y = 0; y < height; y++){
+					int x = (int)((rho - y * std::sin(theta * M_PI / 180)) / std::cos(theta * M_PI / 180));
+					if(x >= 0 && x < width){
+						output[(y * width + x) * channels] = 255;
+						output[(y * width + x) * channels + 1] = 0;
+						output[(y * width + x) * channels + 2] = 0;
+					}
+				}
+			}
+		}
+	}
+
+	delete[] hough_space;
+}
+
+
 void measure_time(bool start, FILE* file_times, std::string name){
 	static std::chrono::system_clock::time_point start_time;
 	static std::chrono::system_clock::time_point end_time;
@@ -421,10 +482,21 @@ int main(int argc, char *argv[])
 	measure_time(true, file_times, "erosion");
 	apply_erosion(erosion_kernel_size, height, width, erosion, dilation, erosion_kernel);
 	measure_time(false, file_times, "erosion");
+	stbi_write_png("./output/7_erosion.png", width, height, 1, erosion, width);
+
+
+	uint8_t* hough_output;
+	hough_output = (uint8_t*)malloc(width*height*3);
+
+	measure_time(true, file_times, "Hough Transform");
+	hough_transform(height, width, erosion, hough_output);
+	measure_time(false, file_times, "Hough Transform");
+
+	stbi_write_png("./output/8_hough_output.png", width, height, 3, hough_output, width);
+
 
 	
 
-	stbi_write_png("./output/7_erosion.png", width, height, 1, erosion, width);
 
 
 
