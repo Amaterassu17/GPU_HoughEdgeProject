@@ -44,7 +44,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 #define GAUSSIAN_KERNEL_SIZE 5
 #define GAUSSIAN_SIGMA 1.4
 #define SHARED 1
-#define TILED 1
+#define TILED 0
 
 
 #define MAX_THRESHOLD_MULT 0.2//*255
@@ -220,7 +220,6 @@ __global__ void apply_filter_shared_tiled(int kernel_size, int height, int width
 
 	__syncthreads(); // Ensure all threads have finished copying to shared memory
 
-	printf("Ciaooo");
 	if(i==0 && j==0){
 		for(int k = 0; k < TILE_SIZE+kernel_size-1; k++){
 			for(int m = 0; m < TILE_SIZE+kernel_size-1; m++){
@@ -289,6 +288,7 @@ __global__ void compute_magnitude_and_gradient(int height, int width, uint8_t *I
 	
 
 }
+
 
 __global__ void non_maximum_suppression_non_interpolated(int height, int width, uint8_t *suppr_mag, uint8_t *mag, float* grad){
 
@@ -487,19 +487,6 @@ if(i < height && j < width){
 }
 }
 
-
-// void measure_time(bool start, FILE* file_times, std::string name){
-// 	static std::chrono::system_clock::time_point start_time;
-// 	static std::chrono::system_clock::time_point end_time;
-// 	if(start){
-// 		start_time = std::chrono::system_clock::now();
-// 	} else {
-// 		end_time = std::chrono::system_clock::now();
-// 		std::chrono::duration<float> duration = end_time - start_time;
-// 		fprintf(file_times, "%s: %f \n", name.c_str(), duration.count());
-// 	}
-// }
-
 float* get_gaussian_filter (int kernel_size, float sigma){
 
 	kernel_size = kernel_size%2 == 0 ? kernel_size-1 : kernel_size;
@@ -617,8 +604,6 @@ int main(int argc, char *argv[])
 	grey_image = (uint8_t*)malloc(width*height);
 	cudaMalloc(&grey_image_d, width*height);
 
-	//measure_time(true, file_times, "convert_to_greyscale");
-	// convert_to_greyscale(height, width, rgb_image, grey_image);
 	convert_to_greyscale<<<grid, threads>>>(height, width, rgb_image_d, grey_image_d);
 	cudaMemcpy(grey_image, grey_image_d, width*height, cudaMemcpyDeviceToHost);
 
@@ -670,6 +655,7 @@ int main(int argc, char *argv[])
 	cudaMemcpy(gaussian_filter_d, gaussian_filter, kernel_size*kernel_size*sizeof(float), cudaMemcpyHostToDevice);	
 
 	#if SHARED && TILED
+		auto tile_size_alt = TILE_SIZE+GAUSSIAN_KERNEL_SIZE-1;
 		printf("shared and tiled\n");
 		apply_filter_shared_tiled<<<grid, threads, sizeof(uint8_t)*(tile_size_alt * tile_size_alt)>>>(kernel_size, height, width, gaussian_image_d, grey_image_d, 0);
 	#else
