@@ -236,8 +236,8 @@ __global__ void double_threshold(int height, int width,  uint8_t *pixel_classifi
 	// float high_threshold = 0.09*255;
 	// float low_threshold = high_threshold*0.05;
 
-	float high_threshold = 0.4*255;
-	float low_threshold = 0.1*255;
+	float high_threshold = 0.2*255;
+	float low_threshold = 0.05*255;
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -262,8 +262,6 @@ __global__ void double_threshold(int height, int width,  uint8_t *pixel_classifi
 
 __global__ void hysteresis(int height, int width, uint8_t *pixel_classification){
 
-	// TODO: implement like in paper
-	
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -296,7 +294,7 @@ __global__ void hysteresis_stack(int height, int width, uint8_t *pixel_classific
 	// pixel is a strong edge pixel
 	if(i < height && j < width && pixel_classification[i*width+j] == 255){
 		for(int l=-1; l<2; l++){
-			for(int m=-1; m<1; m++){
+			for(int m=-1; m<2; m++){
 				int index = (i+l)*width+(j+m);
 				if((i+l) > 0 && (j+m) > 0 && (i+l) < height & (j+m) < width &&
 					pixel_classification[index] == 50){
@@ -307,41 +305,33 @@ __global__ void hysteresis_stack(int height, int width, uint8_t *pixel_classific
 			}
 		}
 	}
-	// max 8 * width*height ints on the stack if image is completely white
-	// that's 8 * 1024 * 1024 = 8* 10^6 ints
-	// does it fit in shared memory?
-	// one int is 4B
-	// = 32 * 10^6 B = 32 000 kB (but we only have 48kB)
-	// which means a stack depth of 12 000
-	// ahhh but we are tiling so it should be fine
-	__syncthreads(); // is this correct here? now all neighbouring weak edge pixels should be pushed
-	// though not necessarily in the right order but i think it doesn't matter here
+	
+	__syncthreads();
 	
 	while(stack_depth > 0){
-		// tmp_stack_depth stores value before 1 was subtracted
-		int tmp_stack_depth = atomicSub(&stack_depth, 1);
 
-		if(tmp_stack_depth > 0){
-			// every stack pops a different element
-			int index = stack_sdata[tmp_stack_depth-1];
-			// set current one to final edge pixel
-			pixel_classification[index] = 255;
-			int i_top = index % width;
-			int j_top = index - i_top*width;
-			for(int l=-1; l<2; l++){
-				for(int m=-1; m<1; m++){
-					int new_idx = (i_top+l)*width+(j_top+m);
-					if(m != 0 && l !=0 && (i_top+l) > 0 && (j_top+m) > 0 && (i_top+l) < height & (j_top+m) < width &&
-					pixel_classification[new_idx] == 50){
-						// neighbour is valid weak edge pixel -> push to stack
-						int tmp_stack_depth = atomicAdd(&stack_depth, 1);
-						stack_sdata[tmp_stack_depth] = new_idx;
+		if(threadIdx.y * blockDim.x + threadIdx.x < stack_depth){
+			// tmp_stack_depth stores value before 1 was subtracted
+			int tmp_stack_depth = atomicSub(&stack_depth, 1);
+			if(tmp_stack_depth > 0){
+				// every thread pops a different element
+				int indexx = stack_sdata[tmp_stack_depth-1];
+				// set current one to final edge pixel
+				pixel_classification[indexx] = 255;
+				int i_top = floor((indexx)*1.0 / width);
+				int j_top = indexx - i_top*width;
+				for(int l=-1; l<2; l++){
+					for(int m=-1; m<2; m++){
+						int new_idx = (i_top+l)*width+(j_top+m);
+						if(m != 0 && l !=0 && (i_top+l) > 0 && (j_top+m) > 0 && (i_top+l) < height & (j_top+m) < width &&
+						pixel_classification[new_idx] == 50){
+							// neighbour is valid weak edge pixel -> push to stack
+							int tmp_stack_depth = atomicAdd(&stack_depth, 1);
+							stack_sdata[tmp_stack_depth] = new_idx;
+						}
 					}
 				}
 			}
-		} else {
-			// subtracted one to many, add one
-			atomicAdd(&stack_depth, 1);
 		}
 	}
 
@@ -349,13 +339,8 @@ __global__ void hysteresis_stack(int height, int width, uint8_t *pixel_classific
 
 	// remove remaining weak edge pixels
 	if(i < height && j < width && pixel_classification[i*width+j] == 50){
-		//printf("%d removing weak pixels \n", 2);
 		pixel_classification[i*width+j] = 0;
-	} else{
-		//printf("%d %d, %d why not executing \n", i, j, pixel_classification[i*width+j]);
 	}
-
-	__syncthreads();
 }
 
 
@@ -537,6 +522,16 @@ int main(int argc, char *argv[])
 	cudaFree(rgb_image_d);
 	stbi_write_png("./output_GPU/0_image_grey.png", width, height, 1, grey_image, width);
 
+	// Initialize timing
+
+	cudaEvent_t start, stop, start_total, stop_total;
+  	float msecTotal;
+    cudaEventCreate(&start);
+	cudaEventCreate(&stop);	
+	cudaEventCreate(&start_total);
+	cudaEventCreate(&stop_total);
+
+	cudaEventRecord(start_total, NULL);	
 	
 	// Apply Gaussian filtering
 	
@@ -553,6 +548,8 @@ int main(int argc, char *argv[])
 		}
 		std::cout<<std::endl;
 	}
+
+	cudaEventRecord(start, NULL);
 
 	uint8_t* gaussian_image;
 	uint8_t* gaussian_image_d;
@@ -576,12 +573,21 @@ int main(int argc, char *argv[])
 	#endif
 
 	cudaMemcpy(gaussian_image, gaussian_image_d, width*height, cudaMemcpyDeviceToHost);
+
+	cudaEventRecord(stop, NULL);
+  	cudaEventSynchronize(stop);
+  	cudaEventElapsedTime(&msecTotal, start, stop);
+
+	printf("\t Gaussian filtering time: %f (ms)\n", msecTotal);
+
 	stbi_image_free(grey_image);
 	stbi_write_png("./output_GPU/0_image_gaussian.png", width, height, 1, gaussian_image, width);
 
-	
 
-	//Apply 3x3 Sobel filtering
+	// Apply 3x3 Sobel filtering
+
+	cudaEventRecord(start, NULL);
+
 	float sobel_h[9] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
 	float sobel_v[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
 	uint8_t* sobel_image_h;
@@ -612,6 +618,12 @@ int main(int argc, char *argv[])
 	cudaMemcpy(sobel_image_h, sobel_image_h_d, width*height, cudaMemcpyDeviceToHost);
 	cudaMemcpy(sobel_image_v, sobel_image_v_d, width*height, cudaMemcpyDeviceToHost);
 
+	cudaEventRecord(stop, NULL);
+  	cudaEventSynchronize(stop);
+  	cudaEventElapsedTime(&msecTotal, start, stop);
+
+	printf("\t Sobel filtering time: %f (ms)\n", msecTotal);
+
 	stbi_image_free(gaussian_image);
 	stbi_write_png("./output_GPU/1_image_sobel_h.png", width, height, 1, sobel_image_h, width);
 	stbi_write_png("./output_GPU/1_image_sobel_v.png", width, height, 1, sobel_image_v, width);
@@ -620,7 +632,8 @@ int main(int argc, char *argv[])
 
 
 	// // Calculate magnitude and gradient direction
-    
+
+	cudaEventRecord(start, NULL);
 
 	float* gradient_direction;
 	float* gradient_direction_d;
@@ -637,12 +650,21 @@ int main(int argc, char *argv[])
 	cudaMemcpy(gradient_direction, gradient_direction_d, width*height*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaMemcpy(magnitude, magnitude_d, width*height, cudaMemcpyDeviceToHost);
 
+	cudaEventRecord(stop, NULL);
+  	cudaEventSynchronize(stop);
+  	cudaEventElapsedTime(&msecTotal, start, stop);
+
+	printf("\t Gradient/magnitude calculation time: %f (ms)\n", msecTotal);
+	
 	stbi_image_free(sobel_image_v);
 	stbi_image_free(sobel_image_h);
 	stbi_write_png("./output_GPU/2_gradient_direction.png", width, height, 1, gradient_direction, width);
 	stbi_write_png("./output_GPU/2_magnitude.png", width, height, 1, magnitude, width);
 
 	// // Non-maximum suppression
+
+	cudaEventRecord(start, NULL);
+
 	uint8_t* suppr_mag;
 	uint8_t* suppr_mag_d;
 	suppr_mag = (uint8_t*)malloc(width*height);
@@ -652,11 +674,20 @@ int main(int argc, char *argv[])
 
 	cudaMemcpy(suppr_mag, suppr_mag_d, width*height, cudaMemcpyDeviceToHost);
 
+	cudaEventRecord(stop, NULL);
+  	cudaEventSynchronize(stop);
+  	cudaEventElapsedTime(&msecTotal, start, stop);
+
+	printf("\t Non-max suppression time: %f (ms)\n", msecTotal);
+
 	stbi_image_free(magnitude);
 	stbi_image_free(gradient_direction);
 	stbi_write_png("./output_GPU/3_nonmax_suppr.png", width, height, 1, suppr_mag, width);
 
-	// // Double thresholding and edge tracking by hysteresis
+	// // Double thresholding
+
+	cudaEventRecord(start, NULL);
+
 	uint8_t* pixel_classification;
 	uint8_t* pixel_classification_d;
 	pixel_classification = (uint8_t*)malloc(width*height);
@@ -665,26 +696,41 @@ int main(int argc, char *argv[])
 	double_threshold<<<grid, threads>>>(height, width, pixel_classification_d, suppr_mag_d);
 
 	cudaMemcpy(pixel_classification, pixel_classification_d, width*height, cudaMemcpyDeviceToHost);
+
+	cudaEventRecord(stop, NULL);
+  	cudaEventSynchronize(stop);
+  	cudaEventElapsedTime(&msecTotal, start, stop);
+
+	printf("\t Double thresholding time: %f (ms)\n", msecTotal);
 	
 	stbi_write_png("./output_GPU/4_thresholded.png", width, height, 1, pixel_classification, width);
 	
-	cudaEvent_t start, stop;
-  	float msecTotal;
-    cudaEventCreate(&start);
+
+	// Hyteresis
+	
 	cudaEventRecord(start, NULL);
-	//hysteresis_stack<<<grid, threads, 47 * 1024>>>(height, width, pixel_classification_d);
-	hysteresis<<<grid, threads>>>(height, width, pixel_classification_d);
-	cudaEventCreate(&stop);
+
+	hysteresis_stack<<<grid, threads, 47 * 1024>>>(height, width, pixel_classification_d);
+	//hysteresis<<<grid, threads>>>(height, width, pixel_classification_d);
+
+	cudaMemcpy(pixel_classification, pixel_classification_d, width*height, cudaMemcpyDeviceToHost);
+
   	cudaEventRecord(stop, NULL);
   	cudaEventSynchronize(stop);
   	cudaEventElapsedTime(&msecTotal, start, stop);
 
-	printf("\t Processing time: %f (ms)", msecTotal);
+	printf("\t Hysteresis time: %f (ms)\n", msecTotal);
 
-	cudaMemcpy(pixel_classification, pixel_classification_d, width*height, cudaMemcpyDeviceToHost);
 
 	stbi_write_png("./output_GPU/5_hysteresis.png", width, height, 1, pixel_classification, width);
 
+	// // Final timing
+
+	cudaEventRecord(stop_total, NULL);
+  	cudaEventSynchronize(stop_total);
+  	cudaEventElapsedTime(&msecTotal, start_total, stop_total);
+
+	printf("\t Total processing time: %f (ms)\n", msecTotal);
 
 	//Dilation and Erosion
 
