@@ -54,7 +54,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 __constant__ float sobel_h_constant[9] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
 __constant__ float sobel_v_constant[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
 __constant__ float gaussian_filter_constant[GAUSSIAN_KERNEL_SIZE*GAUSSIAN_KERNEL_SIZE];
-__constant__
+
 
 
 __global__ void apply_filter_global(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel){
@@ -126,6 +126,7 @@ __global__ void apply_filter_shared_tiled(int kernel_size, int height, int width
 	float* kernel_shared;
 	if(code == 0){
 		kernel_shared= gaussian_filter_constant;
+		
 	} else if(code == 1){
 		kernel_shared= sobel_h_constant;
 	} else if(code == 2){
@@ -136,15 +137,87 @@ __global__ void apply_filter_shared_tiled(int kernel_size, int height, int width
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (threadIdx.x < kernel_size && threadIdx.y < kernel_size) {
-		input_shared[threadIdx.y][threadIdx.x] = input[i*width + j];
+	if (i < height && j < width) {
+		input_shared[threadIdx.y+(kernel_size/2)][threadIdx.x+(kernel_size/2)] = input[i * width + j];
+		//Manage tiling if on the borders adding padding on the borders and the other values of the matrix if the border is inner
+		if(i==0 && j==0)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				for(int m = 0; m < kernel_size/2; m++){
+					input_shared[k][m] = 0;
+				}
+			}
+		}
+		else if(i==0 && j==width-1)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				for(int m = 0; m < kernel_size/2; m++){
+					input_shared[k][TILE_SIZE-1-m] = 0;
+				}
+			}
+		}
+		else if(i==height-1 && j==0)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				for(int m = 0; m < kernel_size/2; m++){
+					input_shared[TILE_SIZE-1-k][m] = 0;
+				}
+			}
+		}
+		else if(i==height-1 && j==width-1)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				for(int m = 0; m < kernel_size/2; m++){
+					input_shared[TILE_SIZE-1-k][TILE_SIZE-1-m] = 0;
+				}
+			}
+		}
+		else if(i==0)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				input_shared[k][threadIdx.x] = 0;
+			}
+		}
+		else if(i==height-1)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				input_shared[TILE_SIZE-1-k][threadIdx.x] = 0;
+			}
+		}
+		else if(j==0)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				input_shared[threadIdx.y][k] = 0;
+			}
+		}
+		else if(j==width-1)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				input_shared[threadIdx.y][TILE_SIZE-1-k] = 0;
+			}
+		}
+		
+		if(threadIdx.x == TILE_SIZE-1)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				input_shared[threadIdx.y][TILE_SIZE-1+k] = input[i*width + j+k];
+			}
+		}
+		if(threadIdx.y == TILE_SIZE-1)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				input_shared[TILE_SIZE-1+k][threadIdx.x] = input[(i+k)*width + j];
+			}
+		}
+		if(threadIdx.x == TILE_SIZE-1 && threadIdx.y == TILE_SIZE-1)
+		{
+			for(int k = 0; k < kernel_size/2; k++){
+				for(int m = 0; m < kernel_size/2; m++){
+					input_shared[TILE_SIZE-1+k][TILE_SIZE-1+m] = input[(i+k)*width + j+m];
+				}
+			}
+		}
 	}
-
-	if (threadIdx.x == 0 && threadIdx.y == 0){
-		if(input_shared[threadIdx.y][threadIdx.x] != 0)
-		printf("i = %d, j = %d, input_shared -> %d\n", i, j, input_shared[threadIdx.y][threadIdx.x]);
-	}
-
 
 	__syncthreads(); // Ensure all threads have finished copying to shared memory
 
@@ -366,14 +439,14 @@ float* get_gaussian_filter (int kernel_size, float sigma){
 	for(int i = 0; i < kernel_size; i++){
 		for(int j = 0; j < kernel_size; j++){
 			gaussian_filter[i*kernel_size + j] = exp(-(i*i+j*j)/(2*sigma*sigma))/(2*M_PI*sigma*sigma);
-			gaussian_filter_constant[i*kernel_size + j] = gaussian_filter[i*kernel_size + j];
+			// gaussian_filter_constant[i*kernel_size + j] = gaussian_filter[i*kernel_size + j];
 			sum += gaussian_filter[i*kernel_size + j];
 		}
 	}
 	for(int i = 0; i < kernel_size; i++){
 		for(int j = 0; j < kernel_size; j++){
 			gaussian_filter[i*kernel_size + j] /= sum;
-			gaussian_filter_constant[i*kernel_size + j] /= sum;
+			//gaussian_filter_constant[i*kernel_size + j] /= sum;
 		}
 	}
 	return gaussian_filter;
@@ -495,6 +568,9 @@ int main(int argc, char *argv[])
 		#endif
 	#else
 		float* gaussian_filter = get_gaussian_filter(kernel_size, sigma);
+		#if SHARED && TILED
+			cudaMemcpyToSymbol(gaussian_filter_constant, gaussian_filter, kernel_size*kernel_size*sizeof(float));
+		#endif
 	#endif
 	for(int i = 0; i < kernel_size; i++){
 		for(int j = 0; j < kernel_size; j++){
