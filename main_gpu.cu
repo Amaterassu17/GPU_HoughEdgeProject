@@ -221,6 +221,14 @@ __global__ void apply_filter_shared_tiled(int kernel_size, int height, int width
 
 	__syncthreads(); // Ensure all threads have finished copying to shared memory
 
+	printf("Ciaooo");
+	if(i==0 && j==0){
+		for(int k = 0; k < TILE_SIZE+kernel_size-1; k++){
+			for(int m = 0; m < TILE_SIZE+kernel_size-1; m++){
+				printf("%d, ", input_shared[k][m]);
+			}
+		}
+	}
 
 	if (i < height && j < width) {
 		float sum = 0;
