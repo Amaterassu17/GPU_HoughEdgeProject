@@ -16,8 +16,8 @@
 #define GAUSSIAN_KERNEL_SIZE 3
 #define GAUSSIAN_SIGMA 1
 
-#define MAX_THRESHOLD_MULT 0.4
-#define MIN_THRESHOLD_MULT 0.1
+#define MAX_THRESHOLD_MULT 0.2
+#define MIN_THRESHOLD_MULT 0.05
 #define NON_MAX_SUPPR_THRESHOLD 1
 
 
@@ -230,7 +230,7 @@ void measure_time(bool start, FILE* file_times, std::string name){
 	} else {
 		end_time = std::chrono::system_clock::now();
 		std::chrono::duration<double> duration = end_time - start_time;
-		fprintf(file_times, "%s: %f \n", name.c_str(), duration.count());
+		fprintf(file_times, "%s: %f \n", name.c_str(), duration.count()*1000);
 	}
 }
 
@@ -276,8 +276,6 @@ float* get_gaussian_laplacian_filter (int kernel_size, float sigma){
 int main(int argc, char *argv[])
 {
     int width, height, bpp;
-
-	// does this datatype lead to bank conflicts? yes but we can't do anything about it
     
 	auto img_fname = argc>=2 ? argv[1] : "image.png";
 
@@ -300,6 +298,11 @@ int main(int argc, char *argv[])
 
 // 	Apply Gaussian filtering
 // Choose the kernel size you want
+
+	static std::chrono::system_clock::time_point start_total;
+	static std::chrono::system_clock::time_point end_total;
+	
+	start_total = std::chrono::system_clock::now();
 	
 	auto kernel_size = GAUSSIAN_KERNEL_SIZE;
 	float sigma = GAUSSIAN_SIGMA;
@@ -316,10 +319,11 @@ int main(int argc, char *argv[])
 		printf("\n");
 	}
 
+	measure_time(true, file_times, "apply_gaussian_filter");
+
 	uint8_t* gaussian_image;
     gaussian_image = (uint8_t*)malloc(width*height);
 
-	measure_time(true, file_times, "apply_gaussian_filter");
 	apply_filter(kernel_size, height, width, gaussian_image, grey_image, gaussian_filter);
 	measure_time(false, file_times, "apply_gaussian_filter");
 
@@ -327,6 +331,8 @@ int main(int argc, char *argv[])
 	stbi_write_png("./output/0_image_gaussian.png", width, height, 1, gaussian_image, width);
 	
 	// Apply Sobel filtering
+	measure_time(true, file_times, "apply_sobel_filters");
+
 	float sobel_h[kernel_size*kernel_size] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
 	float sobel_v[kernel_size*kernel_size] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
 	uint8_t* sobel_image_h;
@@ -334,7 +340,6 @@ int main(int argc, char *argv[])
 	uint8_t* sobel_image_v;
     sobel_image_v = (uint8_t*)malloc(width*height);
 
-	measure_time(true, file_times, "apply_sobel_filters");
 	apply_filter(kernel_size, height, width, sobel_image_h, gaussian_image, sobel_h);
 	apply_filter(kernel_size, height, width, sobel_image_v, gaussian_image, sobel_v);
 	measure_time(false, file_times, "apply_sobel_filters");
@@ -344,12 +349,12 @@ int main(int argc, char *argv[])
 	stbi_write_png("./output/1_image_sobel_v.png", width, height, 1, sobel_image_v, width);
 
 	// Calculate magnitude and gradient direction
-    float* gradient_direction;
+    measure_time(true, file_times, "compute_magnitude_and_gradient");
+	float* gradient_direction;
     gradient_direction = (float*)malloc(width*height*sizeof(float));
 	uint8_t* magnitude;
     magnitude = (uint8_t*)malloc(width*height);
 
-	measure_time(true, file_times, "compute_magnitude_and_gradient");
 	compute_magnitude_and_gradient(height, width, sobel_image_h, sobel_image_v, magnitude, gradient_direction);
 	measure_time(false, file_times, "compute_magnitude_and_gradient");
 
@@ -359,10 +364,10 @@ int main(int argc, char *argv[])
 	stbi_write_png("./output/2_magnitude.png", width, height, 1, magnitude, width);
 
 	// Non-maximum suppression
+	measure_time(true, file_times, "non_maximum_suppression");
 	uint8_t* suppr_mag;
     suppr_mag = (uint8_t*)malloc(width*height);
 
-	measure_time(true, file_times, "non_maximum_suppression");
 	non_maximum_suppression(height, width, suppr_mag, magnitude, gradient_direction);
 	measure_time(false, file_times, "non_maximum_suppression");
 
@@ -375,10 +380,10 @@ int main(int argc, char *argv[])
 	stbi_write_png("./output/3_nonmax_suppr.png", width, height, 1, suppr_mag, width);
 
 	// classify pixels as strong, weak or non-relevant
+	measure_time(true, file_times, "double_threshold");
 	uint8_t* pixel_classification;
     pixel_classification = (uint8_t*)malloc(width*height);
-	
-	measure_time(true, file_times, "double_threshold");
+
 	double_threshold(height, width, pixel_classification, suppr_mag);
 	measure_time(false, file_times, "double_threshold");
 
@@ -389,6 +394,12 @@ int main(int argc, char *argv[])
 	measure_time(false, file_times, "hysteresis");
 
 	stbi_write_png("./output/5_hysteresis.png", width, height, 1, pixel_classification, width);
+
+	// Total timing
+
+	end_total = std::chrono::system_clock::now();
+	std::chrono::duration<double> duration = end_total - start_total;
+	fprintf(file_times, "%s: %f \n", "total", duration.count()*1000);	
 
 	uint8_t* dilation;
 	dilation = (uint8_t*)malloc(width*height);
