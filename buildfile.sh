@@ -5,5 +5,5 @@ cd build
 make
 cd ..
 cd bin
-./GPU_HoughEdgeProject
+./GPU_HoughEdgeProject "../triangle.png"
 cd ..
