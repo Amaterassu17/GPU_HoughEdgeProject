@@ -179,4 +179,8 @@ CMakeFiles/GPU_HoughEdgeProject.dir/main.cpp.o: \
  /user/2/.base/gennusoa/home/CGPU-Project/GPU_HoughEdgeProject/stb_image_write.h \
  /usr/include/c++/11/chrono /usr/include/c++/11/ratio \
  /usr/include/c++/11/limits /usr/include/c++/11/ctime \
- /usr/include/c++/11/bits/parse_numbers.h
+ /usr/include/c++/11/bits/parse_numbers.h /usr/include/c++/11/vector \
+ /usr/include/c++/11/bits/stl_uninitialized.h \
+ /usr/include/c++/11/bits/stl_vector.h \
+ /usr/include/c++/11/bits/stl_bvector.h \
+ /usr/include/c++/11/bits/vector.tcc

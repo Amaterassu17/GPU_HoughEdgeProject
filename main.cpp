@@ -9,16 +9,17 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 #include <chrono>
+#include <vector>
 
 
 
-#define LAPLACIAN_GAUSSIAN 1
+#define LAPLACIAN_GAUSSIAN 0
 #define GAUSSIAN_KERNEL_SIZE 5
-#define GAUSSIAN_SIGMA 1.0
+#define GAUSSIAN_SIGMA 2.0
 
-#define MAX_THRESHOLD_MULT 0.4
-#define MIN_THRESHOLD_MULT 0.1
-#define NON_MAX_SUPPR_THRESHOLD 1
+#define MAX_THRESHOLD_MULT 0.1
+#define MIN_THRESHOLD_MULT 0.01
+#define NON_MAX_SUPPR_THRESHOLD 0.5
 
 
 void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
@@ -221,65 +222,121 @@ void apply_erosion(int kernel_size, int height, int width, uint8_t *output, uint
 	}
 }
 
-void hough_transform(int height, int width, uint8_t *img, uint8_t *output){
-	
-	auto channels = 3;
-	int max_rho = (int)std::sqrt(width*width + height*height);
-	int max_theta = 180;
-	int *hough_space = new int[max_rho * max_theta];
-	std::fill(hough_space, hough_space + max_rho * max_theta, 0);
+// Function to compute the intersection of two line segments
+bool lineSegmentIntersection(int x1, int y1, int x2, int y2, int x3, int y3, int x4, int y4, int& x_intersect, int& y_intersect) {
+    int dx12 = x1 - x2;
+    int dy12 = y1 - y2;
+    int dx34 = x3 - x4;
+    int dy34 = y3 - y4;
 
-	for(int y = 0; y < height; y++){
-		for(int x = 0; x < width; x++){
-			if(img[y * width + x] < 128){
-				for(int theta = 0; theta < max_theta; theta++){
-					float rho = x * std::cos(theta * M_PI / 180) + y * std::sin(theta * M_PI / 180);
-					int rho_idx = (int)rho + max_rho / 2;
-					if(rho_idx >= 0 && rho_idx < max_rho) {
-						hough_space[rho_idx * max_theta + theta]++;
-					}
-				}
-			}
-		}
-	}
+    int denominator = dx12 * dy34 - dy12 * dx34;
+    if (denominator == 0) {
+        return false; // Line segments are parallel or collinear
+    }
 
-	int max_hough = *std::max_element(hough_space, hough_space + max_rho * max_theta);
+    int x_nom = (x1 * y2 - y1 * x2) * dx34 - dx12 * (x3 * y4 - y3 * x4);
+    int y_nom = (x1 * y2 - y1 * x2) * dy34 - dy12 * (x3 * y4 - y3 * x4);
 
-	// Copy the image into the output with the 3 channels
-	for(int i = 0; i < height; i++){
-		for(int j = 0; j < width; j++){
-			output[(i * width + j) * channels] = img[i * width + j];
-			output[(i * width + j) * channels + 1] = img[i * width + j];
-			output[(i * width + j) * channels + 2] = img[i * width + j];
-		}
-	}
+    x_intersect = x_nom / denominator;
+    y_intersect = y_nom / denominator;
 
-	for(int rho_idx = 0; rho_idx < max_rho; rho_idx++){
-		for(int theta = 0; theta < max_theta; theta++){
-			if(hough_space[rho_idx * max_theta + theta] > max_hough * 0.5){
-				float rho = rho_idx - max_rho / 2;
-				for(int x = 0; x < width; x++){
-					int y = (int)((rho - x * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
-					if(y >= 0 && y < height){
-						output[(y * width + x) * channels] = 255;
-						output[(y * width + x) * channels + 1] = 0;
-						output[(y * width + x) * channels + 2] = 0;
-					}
-				}
-				for(int y = 0; y < height; y++){
-					int x = (int)((rho - y * std::sin(theta * M_PI / 180)) / std::cos(theta * M_PI / 180));
-					if(x >= 0 && x < width){
-						output[(y * width + x) * channels] = 255;
-						output[(y * width + x) * channels + 1] = 0;
-						output[(y * width + x) * channels + 2] = 0;
-					}
-				}
-			}
-		}
-	}
+    // Check if the intersection point lies within both line segments
+    if (x_intersect < std::min(x1, x2) || x_intersect > std::max(x1, x2) || y_intersect < std::min(y1, y2) || y_intersect > std::max(y1, y2)) {
+        return false;
+    }
+    if (x_intersect < std::min(x3, x4) || x_intersect > std::max(x3, x4) || y_intersect < std::min(y3, y4) || y_intersect > std::max(y3, y4)) {
+        return false;
+    }
 
-	delete[] hough_space;
+    return true;
 }
+
+
+// Function to clip a line segment against the image boundaries using Sutherland-Hodgman algorithm
+void clipLineSutherlandHodgman(int x0, int y0, int x1, int y1, int width, int height, std::vector<int>& clipped_x, std::vector<int>& clipped_y) {
+    std::vector<std::pair<int, int>> polygon = {{0, 0}, {width - 1, 0}, {width - 1, height - 1}, {0, height - 1}};
+    std::vector<std::pair<int, int>> clipped_polygon;
+
+    // Clip against each edge of the rectangular clipping window
+    for (size_t i = 0; i < polygon.size(); ++i) {
+        size_t j = (i + 1) % polygon.size();
+        int x_clip, y_clip;
+        
+        // Compute the intersection point
+        if (lineSegmentIntersection(polygon[i].first, polygon[i].second, polygon[j].first, polygon[j].second, x0, y0, x1, y1, x_clip, y_clip)) {
+            clipped_polygon.push_back(std::make_pair(x_clip, y_clip));
+        }
+    }
+
+    // Copy the clipped polygon vertices
+    clipped_x.clear();
+    clipped_y.clear();
+    for (const auto& vertex : clipped_polygon) {
+        clipped_x.push_back(vertex.first);
+        clipped_y.push_back(vertex.second);
+    }
+}
+
+
+
+// Modified hough_transform function with line clipping using Sutherland-Hodgman algorithm
+void hough_transform(int height, int width, uint8_t *img, uint8_t *output){
+    auto channels = 3;
+    int max_rho = (int)std::sqrt(width * width + height * height);
+    int max_theta = 180;
+    int *hough_space = new int[max_rho * max_theta];
+    std::fill(hough_space, hough_space + max_rho * max_theta, 0);
+
+    for(int y = 0; y < height; y++){
+        for(int x = 0; x < width; x++){
+            if(img[y * width + x] < 128){
+                for(int theta = 0; theta < max_theta; theta++){
+                    float rho = x * std::cos(theta * M_PI / 180) + y * std::sin(theta * M_PI / 180);
+                    int rho_idx = (int)rho + max_rho / 2;
+                    if(rho_idx >= 0 && rho_idx < max_rho) {
+                        hough_space[rho_idx * max_theta + theta]++;
+                    }
+                }
+            }
+        }
+    }
+
+    int max_hough = *std::max_element(hough_space, hough_space + max_rho * max_theta);
+
+    // Copy the image into the output with the 3 channels
+    for(int i = 0; i < height; i++){
+        for(int j = 0; j < width; j++){
+            uint8_t pixel_value = img[i * width + j];
+            output[(i * width + j) * channels] = pixel_value; // Red channel
+            output[(i * width + j) * channels + 1] = pixel_value; // Green channel
+            output[(i * width + j) * channels + 2] = pixel_value; // Blue channel
+        }
+    }
+
+    for(int rho_idx = 0; rho_idx < max_rho; rho_idx++){
+        for(int theta = 0; theta < max_theta; theta++){
+            if(hough_space[rho_idx * max_theta + theta] > max_hough * 0.5){
+                float rho = rho_idx - max_rho / 2;
+                int x0 = 0, y0 = (int)(rho / std::sin(theta * M_PI / 180));
+                int x1 = width - 1, y1 = (int)((rho - (width - 1) * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
+                std::vector<int> clipped_x, clipped_y;
+                clipLineSutherlandHodgman(x0, y0, x1, y1, width, height, clipped_x, clipped_y);
+                for (size_t i = 0; i < clipped_x.size(); ++i) {
+                    int x = clipped_x[i];
+                    int y = clipped_y[i];
+                    if (y >= 0 && y < height) {
+                        output[(y * width + x) * channels] = 255;
+                        output[(y * width + x) * channels + 1] = 0;
+                        output[(y * width + x) * channels + 2] = 0;
+                    }
+                }
+            }
+        }
+    }
+
+    delete[] hough_space;
+}
+
 
 
 void measure_time(bool start, FILE* file_times, std::string name){
@@ -342,6 +399,7 @@ int main(int argc, char *argv[])
     
 	auto img_fname = argc>=2 ? argv[1] : "image.png";
 
+	printf("img_fname: %s\n", img_fname);
 	system("mkdir -p output");
 	auto file_times = fopen("./output/times_Canny.txt", "a");
 	
