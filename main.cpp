@@ -254,28 +254,62 @@ bool lineSegmentIntersection(int x1, int y1, int x2, int y2, int x3, int y3, int
 
 // Function to clip a line segment against the image boundaries using Sutherland-Hodgman algorithm
 void clipLineSutherlandHodgman(int x0, int y0, int x1, int y1, int width, int height, std::vector<int>& clipped_x, std::vector<int>& clipped_y) {
-    std::vector<std::pair<int, int>> polygon = {{0, 0}, {width - 1, 0}, {width - 1, height - 1}, {0, height - 1}};
-    std::vector<std::pair<int, int>> clipped_polygon;
-
-    // Clip against each edge of the rectangular clipping window
-    for (size_t i = 0; i < polygon.size(); ++i) {
-        size_t j = (i + 1) % polygon.size();
-        int x_clip, y_clip;
-        
-        // Compute the intersection point
-        if (lineSegmentIntersection(polygon[i].first, polygon[i].second, polygon[j].first, polygon[j].second, x0, y0, x1, y1, x_clip, y_clip)) {
-            clipped_polygon.push_back(std::make_pair(x_clip, y_clip));
-        }
+    // Perform clipping using Sutherland-Hodgman algorithm
+    // Clip against left edge
+    if (x0 < 0 && x1 < 0)
+        return; // Line is completely outside, discard
+    if (x0 < 0) {
+        y0 = y0 + (y1 - y0) * (-x0) / (x1 - x0);
+        x0 = 0;
+    }
+    if (x1 < 0) {
+        y1 = y0 + (y1 - y0) * (-x0) / (x1 - x0);
+        x1 = 0;
     }
 
-    // Copy the clipped polygon vertices
-    clipped_x.clear();
-    clipped_y.clear();
-    for (const auto& vertex : clipped_polygon) {
-        clipped_x.push_back(vertex.first);
-        clipped_y.push_back(vertex.second);
+    // Clip against right edge
+    if (x0 >= width && x1 >= width)
+        return; // Line is completely outside, discard
+    if (x0 >= width) {
+        y0 = y0 + (y1 - y0) * (width - 1 - x0) / (x1 - x0);
+        x0 = width - 1;
     }
+    if (x1 >= width) {
+        y1 = y0 + (y1 - y0) * (width - 1 - x0) / (x1 - x0);
+        x1 = width - 1;
+    }
+
+    // Clip against top edge
+    if (y0 < 0 && y1 < 0)
+        return; // Line is completely outside, discard
+    if (y0 < 0) {
+        x0 = x0 + (x1 - x0) * (-y0) / (y1 - y0);
+        y0 = 0;
+    }
+    if (y1 < 0) {
+        x1 = x0 + (x1 - x0) * (-y0) / (y1 - y0);
+        y1 = 0;
+    }
+
+    // Clip against bottom edge
+    if (y0 >= height && y1 >= height)
+        return; // Line is completely outside, discard
+    if (y0 >= height) {
+        x0 = x0 + (x1 - x0) * (height - 1 - y0) / (y1 - y0);
+        y0 = height - 1;
+    }
+    if (y1 >= height) {
+        x1 = x0 + (x1 - x0) * (height - 1 - y0) / (y1 - y0);
+        y1 = height - 1;
+    }
+
+    // Add the clipped line to the output vectors
+    clipped_x.push_back(x0);
+    clipped_y.push_back(y0);
+    clipped_x.push_back(x1);
+    clipped_y.push_back(y1);
 }
+
 
 
 
@@ -312,7 +346,7 @@ void hough_transform(int height, int width, uint8_t *img, uint8_t *output, int c
     std::vector<std::pair<int, int>> lines;
     for(int rho_idx = 0; rho_idx < max_rho; rho_idx++) {
         for(int theta = 0; theta < max_theta; theta++) {
-            if(hough_space[rho_idx * max_theta + theta] > 200) { // Adjust threshold as needed
+            if(hough_space[rho_idx * max_theta + theta] > 150) { // Adjust threshold as needed
                 lines.push_back(std::make_pair(rho_idx, theta));
             }
         }
@@ -330,6 +364,25 @@ void hough_transform(int height, int width, uint8_t *img, uint8_t *output, int c
         int rho_idx = line.first;
         int theta = line.second;
         double rho = rho_idx - max_rho / 2.0;
+
+		// //compute clipped lines
+		// int x0 = 0, y0 = (int)(rho / std::sin(theta * M_PI / 180));
+        // int x1 = width - 1, y1 = (int)((rho - (width - 1) * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
+		// std::vector<int> clipped_x, clipped_y;
+		// clipLineSutherlandHodgman(x0, y0, x1, y1, , 50, clipped_x, clipped_y);
+
+		// //draw clipped lines
+		// for (size_t i = 0; i < clipped_x.size(); ++i) {
+        //     int x = clipped_x[i];
+        //     int y = clipped_y[i];
+        //     if (y >= 0 && y < height) {
+        //         output[(y * width + x) * channels] = 255;
+        //         output[(y * width + x) * channels + 1] = 255;
+        //         output[(y * width + x) * channels + 2] = 0;
+        //     }
+        // }
+
+
         for(int x = 0; x < width; x++) {
             int y = (int)((rho - x * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
             if(y >= 0 && y < height) {
