@@ -285,7 +285,7 @@ void clipLineSutherlandHodgman(int x0, int y0, int x1, int y1, int width, int he
 
 
 void hough_transform(int height, int width, uint8_t *img, uint8_t *output) {
-    auto channels = 3;
+    auto channels = 1;
     int max_rho = (int)std::sqrt(width * width + height * height);
     int max_theta = 180;
     int *hough_space = new int[max_rho * max_theta](); // Initialize to 0
@@ -320,11 +320,11 @@ void hough_transform(int height, int width, uint8_t *img, uint8_t *output) {
     }
 
 	//copy image into output with 3 channels
-	// for (int i = 0; i < width*height; i++){
-	// 	output[i*channels] = img[i];
-	// 	output[i*channels + 1] = img[i];
-	// 	output[i*channels + 2] = img[i];
-	// }
+	for (int i = 0; i < width*height; i++){
+		output[i*channels] = img[i];
+		//output[i*channels + 1] = img[i];
+		//output[i*channels + 2] = img[i];
+	}
 
     // Draw lines onto output image
     for(const auto& line : lines) {
@@ -334,9 +334,9 @@ void hough_transform(int height, int width, uint8_t *img, uint8_t *output) {
         for(int x = 0; x < width; x++) {
             int y = (int)((rho - x * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
             if(y >= 0 && y < height) {
-                output[(y * width + x) * channels] = 0;
-                output[(y * width + x) * channels + 1] = 255;
-                output[(y * width + x) * channels + 2] = 0;
+                output[(y * width + x) * channels] = 255;
+                // output[(y * width + x) * channels + 1] = 255;
+                // output[(y * width + x) * channels + 2] = 0;
             }
         }
     }
@@ -566,7 +566,10 @@ int main(int argc, char *argv[])
 	hough_transform(height, width, erosion, hough_output);
 	measure_time(false, file_times, "Hough Transform");
 
-	stbi_write_png("./output/8_hough_output.png", width, height, 3, hough_output, width);
+	stbi_image_free(erosion);
+	
+
+	stbi_write_png("./output/8_hough_output.png", width, height, 1, hough_output, width);
 
     return 0;
 }
