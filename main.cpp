@@ -284,8 +284,7 @@ void clipLineSutherlandHodgman(int x0, int y0, int x1, int y1, int width, int he
 // Modified hough_transform function with line clipping using Sutherland-Hodgman algorithm
 
 
-void hough_transform(int height, int width, uint8_t *img, uint8_t *output) {
-    auto channels = 1;
+void hough_transform(int height, int width, uint8_t *img, uint8_t *output, int channels) {
     int max_rho = (int)std::sqrt(width * width + height * height);
     int max_theta = 180;
     int *hough_space = new int[max_rho * max_theta](); // Initialize to 0
@@ -322,8 +321,8 @@ void hough_transform(int height, int width, uint8_t *img, uint8_t *output) {
 	//copy image into output with 3 channels
 	for (int i = 0; i < width*height; i++){
 		output[i*channels] = img[i];
-		//output[i*channels + 1] = img[i];
-		//output[i*channels + 2] = img[i];
+		output[i*channels + 1] = img[i];
+		output[i*channels + 2] = img[i];
 	}
 
     // Draw lines onto output image
@@ -335,16 +334,16 @@ void hough_transform(int height, int width, uint8_t *img, uint8_t *output) {
             int y = (int)((rho - x * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
             if(y >= 0 && y < height) {
                 output[(y * width + x) * channels] = 255;
-                // output[(y * width + x) * channels + 1] = 255;
-                // output[(y * width + x) * channels + 2] = 0;
+                output[(y * width + x) * channels + 1] = 255;
+                output[(y * width + x) * channels + 2] = 0;
             }
         }
     }
 
-	for (int i= 0; i<width*height*channels; i++){
+	// for (int i= 0; i<width*height*channels; i++){
 		
-		printf("%d ", output[i]);
-	}
+	// 	printf("%d ", output[i]);
+	// }
 
 	//print size of output
 	printf("%d ", width*height*channels);
@@ -416,6 +415,7 @@ int main(int argc, char *argv[])
 
 	printf("img_fname: %s\n", img_fname);
 	system("mkdir -p output");
+	system("rm -f ./output/*");
 	auto file_times = fopen("./output/times_Canny.txt", "a");
 	
 	uint8_t* rgb_image = stbi_load(img_fname, &width, &height, &bpp, 3);
@@ -563,13 +563,13 @@ int main(int argc, char *argv[])
 	
 
 	measure_time(true, file_times, "Hough Transform");
-	hough_transform(height, width, erosion, hough_output);
+	hough_transform(height, width, erosion, hough_output, 3);
 	measure_time(false, file_times, "Hough Transform");
 
 	stbi_image_free(erosion);
 	
 
-	stbi_write_png("./output/8_hough_output.png", width, height, 1, hough_output, width);
+	stbi_write_png("./output/8_hough_output.png", width, height, 3, hough_output, width*3);
 
     return 0;
 }
