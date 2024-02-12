@@ -2,4 +2,4 @@
 
 cd .
 nvcc main_gpu.cu -o main_gpu
-./main_gpu lena.png
+./main_gpu triangle.png
