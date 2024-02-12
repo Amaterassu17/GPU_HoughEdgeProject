@@ -338,7 +338,19 @@ void hough_transform(int height, int width,int max_rho, int max_theta, float thr
         }
     }
 
-    // Find lines in Hough space
+	//print highest values in hough space
+	// int max = 0;
+	// for (int i=0 ; i< max_rho; i++){
+	// 	for (int j=0 ; j< max_theta; j++){
+	// 		if (hough_space[i*max_rho + j] > max){
+	// 			max = hough_space[i*max_rho + j];
+	// 		}
+	// 	}
+	// }
+	// printf("max: %d \n", max);
+	
+
+    Find lines in Hough space
     std::vector<std::pair<int, int>> lines;
     for(int rho_idx = 0; rho_idx < max_rho; rho_idx++) {
         for(int theta = 0; theta < max_theta; theta++) {
@@ -348,12 +360,6 @@ void hough_transform(int height, int width,int max_rho, int max_theta, float thr
         }
     }
 
-	//copy image into output with 3 channels
-	for (int i = 0; i < width*height; i++){
-		output[i*channels] = img[i];
-		output[i*channels + 1] = img[i];
-		output[i*channels + 2] = img[i];
-	}
 
     // Draw lines onto output image
     for(const auto& line : lines) {
@@ -361,22 +367,7 @@ void hough_transform(int height, int width,int max_rho, int max_theta, float thr
         int theta = line.second;
         double rho = rho_idx - max_rho / 2.0;
 
-		// //compute clipped lines
-		// int x0 = 0, y0 = (int)(rho / std::sin(theta * M_PI / 180));
-        // int x1 = width - 1, y1 = (int)((rho - (width - 1) * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
-		// std::vector<int> clipped_x, clipped_y;
-		// clipLineSutherlandHodgman(x0, y0, x1, y1, , 50, clipped_x, clipped_y);
 
-		// //draw clipped lines
-		// for (size_t i = 0; i < clipped_x.size(); ++i) {
-        //     int x = clipped_x[i];
-        //     int y = clipped_y[i];
-        //     if (y >= 0 && y < height) {
-        //         output[(y * width + x) * channels] = 255;
-        //         output[(y * width + x) * channels + 1] = 255;
-        //         output[(y * width + x) * channels + 2] = 0;
-        //     }
-        // }
 
 
         for(int x = 0; x < width; x++) {
@@ -389,13 +380,6 @@ void hough_transform(int height, int width,int max_rho, int max_theta, float thr
         }
     }
 
-	// for (int i= 0; i<width*height*channels; i++){
-		
-	// 	printf("%d ", output[i]);
-	// }
-
-	//print size of output
-	printf("%d ", width*height*channels);
 
     delete[] hough_space;
 }
@@ -478,7 +462,6 @@ int main(int argc, char *argv[])
 	measure_time(true, file_times, "convert_to_greyscale");
 	convert_to_greyscale(height, width, rgb_image, grey_image);
 	measure_time(false, file_times, "convert_to_greyscale");
-	stbi_image_free(rgb_image);
 
 // 	Apply Gaussian filtering
 // Choose the kernel size you want
@@ -611,7 +594,7 @@ int main(int argc, char *argv[])
 	auto channels = 3;
     int *hough_space = new int[max_rho * max_theta](); // Initialize to 0
 	uint8_t* hough_output;
-	hough_output = (uint8_t*)malloc(width*height*3);
+	hough_output = rgb_image;
 	
 
 

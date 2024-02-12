@@ -51,7 +51,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 #define MAX_THRESHOLD_MULT 0.2//*255
 #define MIN_THRESHOLD_MULT 0.01 //*255
 #define NON_MAX_SUPPR_THRESHOLD 1
-#define HOUGH_THRESHOLD_MULT 0.05
+#define HOUGH_THRESHOLD_MULT 0.07
 
 __constant__ float sobel_h_constant[9] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
 __constant__ float sobel_v_constant[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
@@ -489,13 +489,14 @@ if(i < height && j < width){
 }
 }
 
-__global__ void hough_transform(int height, int width, int max_rho, int max_theta, float threshold_mult, uint8_t* img, int* hough_space, uint8_t *output, int channels, std::vector<std::pair<int, int>>& lines){
+__global__ void hough_transform(int height, int width, int max_rho, int max_theta, float threshold_mult, uint8_t* img, int* hough_space, uint8_t *output, int channels, int* lines){
 
 	double center_x = width / 2.0;
 	double center_y = height / 2.0;
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
+	int lines_count = 0;
 
 	if(i < height && j < width){
 		if(img[i*width + j] > 0){
@@ -509,26 +510,69 @@ __global__ void hough_transform(int height, int width, int max_rho, int max_thet
 		}
 	}
 
-	output[i * width * channels + j * channels] = img[i * width + j];
-	output[i * width * channels + j * channels + 1] = img[i * width + j];
-	output[i * width * channels + j * channels + 2] = img[i * width + j];
+	__syncthreads();
 
-	__syncthreads();	
+	//print highest values in hough
+	if(i == 0 && j == 0){
+		for(int k = 0; k < max_rho; k++){
+			for(int m = 0; m < max_theta; m++){
+				printf("%d, ", hough_space[k*max_theta + m]);
+			}
+		}
+	}
 
 
-	//Find lines in Hough space
 	if(i < max_rho && j < max_theta){
-		if(hough_space[i * max_theta + j] > 255* threshold_mult){
-			for(int k = 0; k < height; k++){
-				int l = (i - max_rho / 2 - k * sin(j * M_PI / 180)) / cos(j * M_PI / 180) + width / 2;
-				if(l >= 0 && l < width){
-					output[k * width * channels + l * channels] = 255;
-					output[k * width * channels + l * channels + 1] = 0;
-					output[k * width * channels + l * channels + 2] = 0;
+		if(hough_space[i * max_rho + j] > 255 * threshold_mult){
+			lines[0] = i;
+			lines[1] = j;
+		}
+	}
+
+	
+
+	__syncthreads();
+
+	if (i < max_rho && j < max_theta) {
+		if (hough_space[i * max_theta + j] > 255 * threshold_mult) {
+			for (int k = 0; k < height; k++) {
+				double rho = j - max_rho / 2.0;
+
+				for (int xx = 0; xx < width; xx++) {
+					int yy = (int)((rho - xx * cos(i * M_PI / 180)) / sin(i * M_PI / 180));
+					if (yy >= 0 && yy < height) {
+						output[(yy * width + xx) * channels] = 255;
+						output[(yy * width + xx) * channels + 1] = 255;
+						output[(yy * width + xx) * channels + 2] = 0;
+					}
 				}
 			}
 		}
 	}
+
+
+	
+
+
+
+
+
+	//Find lines in Hough space
+	// if(i < max_rho && j < max_theta){
+	// 	if(hough_space[i * max_theta + j] > 255* threshold_mult){
+	// 		for(int k = 0; k < height; k++){
+	// 			double rho = j - max_rho / 2.0;
+
+    //         	for (int xx = 0; xx < width; xx++) {
+    //            	 	int yy = (int)((rho - xx * cos(i * M_PI / 180)) / sin(i * M_PI / 180));
+    //            	 	if (yy >= 0 && yy < height) {
+    //              	   output[(yy * width + xx) * channels] = 255;
+    //              	   output[(yy * width + xx) * channels + 1] = 255;
+    //              	   output[(yy * width + xx) * channels + 2] = 0;	
+	// 				   }
+	// 			}
+	// 	}
+	// }
 
 
 
@@ -661,7 +705,6 @@ int main(int argc, char *argv[])
 	cudaMemcpy(grey_image, grey_image_d, width*height, cudaMemcpyDeviceToHost);
 
 	stbi_image_free(rgb_image);
-	cudaFree(rgb_image_d);
 	stbi_write_png("./output_GPU/0_image_grey.png", width, height, 1, grey_image, width);
 
 	// Initialize timing
@@ -957,7 +1000,7 @@ int main(int argc, char *argv[])
 	auto channels = 3;
 	uint8_t* hough_output;
 	uint8_t* hough_output_d;
-
+	int* lines_d;
     hough_space = new int[max_rho * max_theta](); // Initialize to 0
 
 
@@ -970,12 +1013,15 @@ int main(int argc, char *argv[])
 	cudaMalloc(&hough_space_d, max_rho*max_theta*sizeof(int));
 	cudaMemset(hough_space_d, 0, max_rho*max_theta*sizeof(int));
 	hough_output = (uint8_t*)malloc(width*height*channels);
-	cudaMalloc(&hough_output_d, width*height*channels);
+	hough_output_d = rgb_image_d;
+
+	cudaMalloc(&lines_d, 2*sizeof(int)*max_rho*max_theta);
+	cudaMemset(lines_d, 0, 2*sizeof(int)*max_rho*max_theta);
 
 	cudaEventRecord(start, NULL);
-	std::vector<std::pair<int, int>> lines;
+	
 
-	hough_transform<<<grid, threads>>>(height, width, max_rho, max_theta, HOUGH_THRESHOLD_MULT, erosion_d, hough_space_d, hough_output_d, channels, lines);
+	hough_transform<<<grid, threads>>>(height, width, max_rho, max_theta, HOUGH_THRESHOLD_MULT, erosion_d, hough_space_d, hough_output_d, channels, lines_d);
 
 	cudaMemcpy(hough_space, hough_space_d, max_rho*max_theta*sizeof(int), cudaMemcpyDeviceToHost);
 	cudaMemcpy(hough_output, hough_output_d, width*height*channels, cudaMemcpyDeviceToHost);
