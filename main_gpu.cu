@@ -42,16 +42,18 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 
 #define LAPLACIAN_GAUSSIAN 0
-#define GAUSSIAN_KERNEL_SIZE 5
-#define GAUSSIAN_SIGMA 1.4
-#define SHARED 1
+#define GAUSSIAN_KERNEL_SIZE 3
+#define GAUSSIAN_SIGMA 0.8
+#define SHARED 0
 #define TILED 0
+#define HYS_STACK 0
 
 
-#define MAX_THRESHOLD_MULT 0.2//*255
-#define MIN_THRESHOLD_MULT 0.01 //*255
+#define MAX_THRESHOLD_MULT 0.1//*255
+#define MIN_THRESHOLD_MULT 0.0001 //*255
 #define NON_MAX_SUPPR_THRESHOLD 1
-#define HOUGH_THRESHOLD_MULT 0.07
+#define HOUGH_THRESHOLD_MULT 0.7
+
 
 __constant__ float sobel_h_constant[9] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
 __constant__ float sobel_v_constant[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
@@ -326,9 +328,9 @@ __global__ void non_maximum_suppression_non_interpolated(int height, int width, 
 			r = mag[(i+1)*width + j+1];
 		}
 
-		float mag_ij = NON_MAX_SUPPR_THRESHOLD*mag[i*width + j];
+		float mag_ij = mag[i*width + j];
 
-		if (mag_ij >= q && mag_ij >= r){
+		if (mag_ij >= q*NON_MAX_SUPPR_THRESHOLD && mag_ij >= r * NON_MAX_SUPPR_THRESHOLD){
 			suppr_mag[i*width + j] = mag_ij;
 		} else {
 			suppr_mag[i*width + j] = 0;
@@ -338,10 +340,11 @@ __global__ void non_maximum_suppression_non_interpolated(int height, int width, 
 
 }
 
-__global__ void float_threshold(int height, int width,  uint8_t *pixel_classification,  uint8_t *suppr_mag){
+__global__ void float_threshold(int height, int width,  uint8_t *pixel_classification,  uint8_t *suppr_mag, float max_mag){
 
-	float high_threshold = MAX_THRESHOLD_MULT*255;
-	float low_threshold = MIN_THRESHOLD_MULT*255;
+	float high_threshold = MAX_THRESHOLD_MULT*max_mag;
+	float low_threshold = MIN_THRESHOLD_MULT*max_mag;
+
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -489,97 +492,59 @@ if(i < height && j < width){
 }
 }
 
+
+
 __global__ void hough_transform(int height, int width, int max_rho, int max_theta, float threshold_mult, uint8_t* img, int* hough_space, uint8_t *output, int channels, int* lines){
 
-	double center_x = width / 2.0;
-	double center_y = height / 2.0;
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-	int i = blockIdx.y * blockDim.y + threadIdx.y;
-	int j = blockIdx.x * blockDim.x + threadIdx.x;
-	int lines_count = 0;
+    if (i < height && j < width && img[i * width + j] > 0) {
+        for (int thetaIdx = 0; thetaIdx < max_theta; thetaIdx++) {
+            double theta = thetaIdx * M_PI / max_theta;
+            double rho = j * cos(theta) + i * sin(theta);
+            int rhoIdx = (int)(rho + max_rho / 2);
 
-	if(i < height && j < width){
-		if(img[i*width + j] > 0){
-			for(int theta = 0; theta < max_theta; theta++){
-				double rho = i * cos(theta * M_PI / 180) + j * sin(theta * M_PI / 180);
-				int rho_index = (int)rho + max_rho / 2;
-				if(rho_index>=0 && rho_index < max_rho){
-					atomicAdd(&(hough_space[rho_index * max_theta + theta]), 1);	
-				}
-			}
-		}
-	}
+            if (rhoIdx >= 0 && rhoIdx < max_rho) {
+                atomicAdd(&hough_space[rhoIdx * max_theta + thetaIdx], 1);
+            }
+        }
+    }
 
-	__syncthreads();
+    __syncthreads();
 
-	//print highest values in hough
-	if(i == 0 && j == 0){
-		for(int k = 0; k < max_rho; k++){
-			for(int m = 0; m < max_theta; m++){
-				printf("%d, ", hough_space[k*max_theta + m]);
-			}
-		}
-	}
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+        int maxVote = 0;
+        for (int k = 0; k < max_rho; k++) {
+            for (int m = 0; m < max_theta; m++) {
+                int vote = hough_space[k * max_theta + m];
+                if (vote > maxVote) {
+                    maxVote = vote;
+                    lines[0] = k;
+                    lines[1] = m;
+                }
+            }
+        }
+    }
 
+    __syncthreads();
 
-	if(i < max_rho && j < max_theta){
-		if(hough_space[i * max_rho + j] > 255 * threshold_mult){
-			lines[0] = i;
-			lines[1] = j;
-		}
-	}
+    if (i < height && j < width) {
+        if (hough_space[lines[0] * max_theta + lines[1]] > 255 * threshold_mult) {
+            double rho = lines[0] - max_rho / 2.0;
+            double theta = lines[1] * M_PI / max_theta;
 
-	
-
-	__syncthreads();
-
-	if (i < max_rho && j < max_theta) {
-		if (hough_space[i * max_theta + j] > 255 * threshold_mult) {
-			for (int k = 0; k < height; k++) {
-				double rho = j - max_rho / 2.0;
-
-				for (int xx = 0; xx < width; xx++) {
-					int yy = (int)((rho - xx * cos(i * M_PI / 180)) / sin(i * M_PI / 180));
-					if (yy >= 0 && yy < height) {
-						output[(yy * width + xx) * channels] = 255;
-						output[(yy * width + xx) * channels + 1] = 255;
-						output[(yy * width + xx) * channels + 2] = 0;
-					}
-				}
-			}
-		}
-	}
-
-
-	
-
-
-
-
-
-	//Find lines in Hough space
-	// if(i < max_rho && j < max_theta){
-	// 	if(hough_space[i * max_theta + j] > 255* threshold_mult){
-	// 		for(int k = 0; k < height; k++){
-	// 			double rho = j - max_rho / 2.0;
-
-    //         	for (int xx = 0; xx < width; xx++) {
-    //            	 	int yy = (int)((rho - xx * cos(i * M_PI / 180)) / sin(i * M_PI / 180));
-    //            	 	if (yy >= 0 && yy < height) {
-    //              	   output[(yy * width + xx) * channels] = 255;
-    //              	   output[(yy * width + xx) * channels + 1] = 255;
-    //              	   output[(yy * width + xx) * channels + 2] = 0;	
-	// 				   }
-	// 			}
-	// 	}
-	// }
-
-
-
-
-
+            for (int xx = 0; xx < width; xx++) {
+                int yy = (int)((rho - xx * cos(theta)) / sin(theta));
+                if (yy >= 0 && yy < height) {
+                    output[(yy * width + xx) * channels] = 255;
+                    output[(yy * width + xx) * channels + 1] = 255;
+                    output[(yy * width + xx) * channels + 2] = 0;
+                }
+            }
+        }
+    }
 }
-
 
 
 //UTILITY
@@ -685,7 +650,7 @@ int main(int argc, char *argv[])
     cudaMemcpy(rgb_image_d, rgb_image, width*height*3, cudaMemcpyHostToDevice);
 
 	threads = dim3(blocksize, blocksize);
-    grid = dim3((width + threads.x - 1) / threads.x , (height + threads.y - 1) / threads.y);
+    grid = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y);
     printf("CUDA kernel launch with %d blocks of %d threads\n", grid.x * grid.y, threads.x * threads.y);
 
 
@@ -868,6 +833,7 @@ int main(int argc, char *argv[])
 	uint8_t* suppr_mag_d;
 	suppr_mag = (uint8_t*)malloc(width*height);
 	cudaMalloc(&suppr_mag_d, width*height);
+	cudaMemset(suppr_mag_d, 0, width*height);
 
 	non_maximum_suppression_non_interpolated<<<grid, threads>>>(height, width, suppr_mag_d, magnitude_d, gradient_direction_d);
 
@@ -889,7 +855,18 @@ int main(int argc, char *argv[])
 	pixel_classification = (uint8_t*)malloc(width*height);
 	cudaMalloc(&pixel_classification_d, width*height*sizeof(uint8_t));
 
-	float_threshold<<<grid, threads>>>(height, width, pixel_classification_d, suppr_mag_d);
+	float max_mag = 0.0;
+
+	// Find the maximum and minimum magnitude values
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			float mag = suppr_mag[i * width + j];
+			max_mag = std::max(max_mag, mag);
+			
+		}
+	}
+
+	float_threshold<<<grid, threads>>>(height, width, pixel_classification_d, suppr_mag_d, max_mag);
 
 	cudaMemcpy(pixel_classification, pixel_classification_d, width*height, cudaMemcpyDeviceToHost);
 
@@ -906,8 +883,11 @@ int main(int argc, char *argv[])
 	
 	cudaEventRecord(start, NULL);
 
-	hysteresis_stack<<<grid, threads, 47 * 1024>>>(height, width, pixel_classification_d);
-	//hysteresis<<<grid, threads>>>(height, width, pixel_classification_d);
+	#if STACK
+		hysteresis_stack<<<grid, threads, 47 * 1024>>>(height, width, pixel_classification_d);
+	#else
+		hysteresis<<<grid, threads>>>(height, width, pixel_classification_d);
+	#endif
 
 	cudaMemcpy(pixel_classification, pixel_classification_d, width*height, cudaMemcpyDeviceToHost);
 

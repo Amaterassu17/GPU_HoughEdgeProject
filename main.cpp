@@ -17,7 +17,7 @@
 #define GAUSSIAN_KERNEL_SIZE 5
 #define GAUSSIAN_SIGMA 2.0
 
-#define MAX_THRESHOLD_MULT 0.1
+#define MAX_THRESHOLD_MULT 0.3
 #define MIN_THRESHOLD_MULT 0.01
 #define NON_MAX_SUPPR_THRESHOLD 0.5
 #define THRESHOLD_HOUGH_MULT 0.7
@@ -128,17 +128,8 @@ void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t 
 	}
 }
 
-void double_threshold(int height, int width, uint8_t *pixel_classification, uint8_t *suppr_mag) {
-	float max_mag = 0.0;
-
-	// Find the maximum and minimum magnitude values
-	for (int i = 0; i < height; i++) {
-		for (int j = 0; j < width; j++) {
-			float mag = suppr_mag[i * width + j];
-			max_mag = std::max(max_mag, mag);
-			
-		}
-	}
+void double_threshold(int height, int width, uint8_t *pixel_classification, uint8_t *suppr_mag, float max_mag) {
+	
 
 	// Calculate the new threshold values
 	float high_threshold = MAX_THRESHOLD_MULT * max_mag;
@@ -221,109 +212,17 @@ void apply_erosion(int kernel_size, int height, int width, uint8_t *output, uint
 	}
 }
 
-// Function to compute the intersection of two line segments
-bool lineSegmentIntersection(int x1, int y1, int x2, int y2, int x3, int y3, int x4, int y4, int& x_intersect, int& y_intersect) {
-    int dx12 = x1 - x2;
-    int dy12 = y1 - y2;
-    int dx34 = x3 - x4;
-    int dy34 = y3 - y4;
 
-    int denominator = dx12 * dy34 - dy12 * dx34;
-    if (denominator == 0) {
-        return false; // Line segments are parallel or collinear
-    }
+struct Line {
+    int rho;
+    int theta;
+};
 
-    int x_nom = (x1 * y2 - y1 * x2) * dx34 - dx12 * (x3 * y4 - y3 * x4);
-    int y_nom = (x1 * y2 - y1 * x2) * dy34 - dy12 * (x3 * y4 - y3 * x4);
-
-    x_intersect = x_nom / denominator;
-    y_intersect = y_nom / denominator;
-
-    // Check if the intersection point lies within both line segments
-    if (x_intersect < std::min(x1, x2) || x_intersect > std::max(x1, x2) || y_intersect < std::min(y1, y2) || y_intersect > std::max(y1, y2)) {
-        return false;
-    }
-    if (x_intersect < std::min(x3, x4) || x_intersect > std::max(x3, x4) || y_intersect < std::min(y3, y4) || y_intersect > std::max(y3, y4)) {
-        return false;
-    }
-
-    return true;
-}
-
-
-// Function to clip a line segment against the image boundaries using Sutherland-Hodgman algorithm
-void clipLineSutherlandHodgman(int x0, int y0, int x1, int y1, int width, int height, std::vector<int>& clipped_x, std::vector<int>& clipped_y) {
-    // Perform clipping using Sutherland-Hodgman algorithm
-    // Clip against left edge
-    if (x0 < 0 && x1 < 0)
-        return; // Line is completely outside, discard
-    if (x0 < 0) {
-        y0 = y0 + (y1 - y0) * (-x0) / (x1 - x0);
-        x0 = 0;
-    }
-    if (x1 < 0) {
-        y1 = y0 + (y1 - y0) * (-x0) / (x1 - x0);
-        x1 = 0;
-    }
-
-    // Clip against right edge
-    if (x0 >= width && x1 >= width)
-        return; // Line is completely outside, discard
-    if (x0 >= width) {
-        y0 = y0 + (y1 - y0) * (width - 1 - x0) / (x1 - x0);
-        x0 = width - 1;
-    }
-    if (x1 >= width) {
-        y1 = y0 + (y1 - y0) * (width - 1 - x0) / (x1 - x0);
-        x1 = width - 1;
-    }
-
-    // Clip against top edge
-    if (y0 < 0 && y1 < 0)
-        return; // Line is completely outside, discard
-    if (y0 < 0) {
-        x0 = x0 + (x1 - x0) * (-y0) / (y1 - y0);
-        y0 = 0;
-    }
-    if (y1 < 0) {
-        x1 = x0 + (x1 - x0) * (-y0) / (y1 - y0);
-        y1 = 0;
-    }
-
-    // Clip against bottom edge
-    if (y0 >= height && y1 >= height)
-        return; // Line is completely outside, discard
-    if (y0 >= height) {
-        x0 = x0 + (x1 - x0) * (height - 1 - y0) / (y1 - y0);
-        y0 = height - 1;
-    }
-    if (y1 >= height) {
-        x1 = x0 + (x1 - x0) * (height - 1 - y0) / (y1 - y0);
-        y1 = height - 1;
-    }
-
-    // Add the clipped line to the output vectors
-    clipped_x.push_back(x0);
-    clipped_y.push_back(y0);
-    clipped_x.push_back(x1);
-    clipped_y.push_back(y1);
-}
-
-
-
-
-
-
-// Modified hough_transform function with line clipping using Sutherland-Hodgman algorithm
-
-
-void hough_transform(int height, int width,int max_rho, int max_theta, float threshold_mult, uint8_t *img, int* hough_space, uint8_t *output, int channels) {
+void hough_transform(int height, int width, int max_rho, int max_theta, float threshold_mult, uint8_t* img, int* hough_space, uint8_t *output, int channels) {
     double center_x = width / 2.0;
     double center_y = height / 2.0;
 
-	
-
-    // Compute Hough Transform
+    // Binning for Hough Transform
     for(int y = 0; y < height; y++) {
         for(int x = 0; x < width; x++) {
             if(img[y * width + x] > 0) { // Adjust threshold as needed
@@ -338,37 +237,22 @@ void hough_transform(int height, int width,int max_rho, int max_theta, float thr
         }
     }
 
-	//print highest values in hough space
-	// int max = 0;
-	// for (int i=0 ; i< max_rho; i++){
-	// 	for (int j=0 ; j< max_theta; j++){
-	// 		if (hough_space[i*max_rho + j] > max){
-	// 			max = hough_space[i*max_rho + j];
-	// 		}
-	// 	}
-	// }
-	// printf("max: %d \n", max);
-	
-
-    Find lines in Hough space
+    // Find lines in Hough space
     std::vector<std::pair<int, int>> lines;
+    int threshold = (int)(255 * threshold_mult);
     for(int rho_idx = 0; rho_idx < max_rho; rho_idx++) {
         for(int theta = 0; theta < max_theta; theta++) {
-            if(hough_space[rho_idx * max_theta + theta] > 255 * threshold_mult) { // Adjust threshold as needed
+            if(hough_space[rho_idx * max_theta + theta] > threshold) { // Adjust threshold as needed
                 lines.push_back(std::make_pair(rho_idx, theta));
             }
         }
     }
-
 
     // Draw lines onto output image
     for(const auto& line : lines) {
         int rho_idx = line.first;
         int theta = line.second;
         double rho = rho_idx - max_rho / 2.0;
-
-
-
 
         for(int x = 0; x < width; x++) {
             int y = (int)((rho - x * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
@@ -379,12 +263,7 @@ void hough_transform(int height, int width,int max_rho, int max_theta, float thr
             }
         }
     }
-
-
-    delete[] hough_space;
 }
-
-
 
 void measure_time(bool start, FILE* file_times, std::string name){
 	static std::chrono::system_clock::time_point start_time;
@@ -542,9 +421,20 @@ int main(int argc, char *argv[])
 	// classify pixels as strong, weak or non-relevant
 	uint8_t* pixel_classification;
     pixel_classification = (uint8_t*)malloc(width*height);
+
+	float max_mag = 0.0;
+
+	// Find the maximum and minimum magnitude values
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			float mag = suppr_mag[i * width + j];
+			max_mag = std::max(max_mag, mag);
+			
+		}
+	}
 	
 	measure_time(true, file_times, "double_threshold");
-	double_threshold(height, width, pixel_classification, suppr_mag);
+	double_threshold(height, width, pixel_classification, suppr_mag, max_mag);
 	measure_time(false, file_times, "double_threshold");
 
 	stbi_write_png("./output/4_thresholded.png", width, height, 1, pixel_classification, width);
