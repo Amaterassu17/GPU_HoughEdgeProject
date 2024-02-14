@@ -17,10 +17,10 @@
 #define GAUSSIAN_KERNEL_SIZE 5
 #define GAUSSIAN_SIGMA 2.0
 
-#define MAX_THRESHOLD_MULT 0.2
-#define MIN_THRESHOLD_MULT 0.05
+#define MAX_THRESHOLD_MULT 0.3
+#define MIN_THRESHOLD_MULT 0.01
 #define NON_MAX_SUPPR_THRESHOLD 1
-
+#define THRESHOLD_HOUGH_MULT 0.7
 
 void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
 {
@@ -35,7 +35,6 @@ void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8
 				for(int m = 0; m < kernel_size; m++)
 	 			{
 					sum += kernel[k*kernel_size + m]*input[(i+(k-1))*width + j + (m-1)];
-
 				}
 			}
 			output[i*width + j] = abs(sum);
@@ -129,17 +128,8 @@ void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t 
 	}
 }
 
-void double_threshold(int height, int width, uint8_t *pixel_classification, uint8_t *suppr_mag) {
-	float max_mag = 0.0;
-
-	// Find the maximum and minimum magnitude values
-	for (int i = 0; i < height; i++) {
-		for (int j = 0; j < width; j++) {
-			float mag = suppr_mag[i * width + j];
-			max_mag = std::max(max_mag, mag);
-			
-		}
-	}
+void double_threshold(int height, int width, uint8_t *pixel_classification, uint8_t *suppr_mag, float max_mag) {
+	
 
 	// Calculate the new threshold values
 	float high_threshold = MAX_THRESHOLD_MULT * max_mag;
@@ -222,122 +212,58 @@ void apply_erosion(int kernel_size, int height, int width, uint8_t *output, uint
 	}
 }
 
-// Function to compute the intersection of two line segments
-bool lineSegmentIntersection(int x1, int y1, int x2, int y2, int x3, int y3, int x4, int y4, int& x_intersect, int& y_intersect) {
-    int dx12 = x1 - x2;
-    int dy12 = y1 - y2;
-    int dx34 = x3 - x4;
-    int dy34 = y3 - y4;
 
-    int denominator = dx12 * dy34 - dy12 * dx34;
-    if (denominator == 0) {
-        return false; // Line segments are parallel or collinear
-    }
+struct Line {
+    int rho;
+    int theta;
+};
 
-    int x_nom = (x1 * y2 - y1 * x2) * dx34 - dx12 * (x3 * y4 - y3 * x4);
-    int y_nom = (x1 * y2 - y1 * x2) * dy34 - dy12 * (x3 * y4 - y3 * x4);
+void hough_transform(int height, int width, int max_rho, int max_theta, float threshold_mult, uint8_t* img, int* hough_space, uint8_t *output, int channels) {
+    double center_x = width / 2.0;
+    double center_y = height / 2.0;
 
-    x_intersect = x_nom / denominator;
-    y_intersect = y_nom / denominator;
-
-    // Check if the intersection point lies within both line segments
-    if (x_intersect < std::min(x1, x2) || x_intersect > std::max(x1, x2) || y_intersect < std::min(y1, y2) || y_intersect > std::max(y1, y2)) {
-        return false;
-    }
-    if (x_intersect < std::min(x3, x4) || x_intersect > std::max(x3, x4) || y_intersect < std::min(y3, y4) || y_intersect > std::max(y3, y4)) {
-        return false;
-    }
-
-    return true;
-}
-
-
-// Function to clip a line segment against the image boundaries using Sutherland-Hodgman algorithm
-void clipLineSutherlandHodgman(int x0, int y0, int x1, int y1, int width, int height, std::vector<int>& clipped_x, std::vector<int>& clipped_y) {
-    std::vector<std::pair<int, int>> polygon = {{0, 0}, {width - 1, 0}, {width - 1, height - 1}, {0, height - 1}};
-    std::vector<std::pair<int, int>> clipped_polygon;
-
-    // Clip against each edge of the rectangular clipping window
-    for (size_t i = 0; i < polygon.size(); ++i) {
-        size_t j = (i + 1) % polygon.size();
-        int x_clip, y_clip;
-        
-        // Compute the intersection point
-        if (lineSegmentIntersection(polygon[i].first, polygon[i].second, polygon[j].first, polygon[j].second, x0, y0, x1, y1, x_clip, y_clip)) {
-            clipped_polygon.push_back(std::make_pair(x_clip, y_clip));
-        }
-    }
-
-    // Copy the clipped polygon vertices
-    clipped_x.clear();
-    clipped_y.clear();
-    for (const auto& vertex : clipped_polygon) {
-        clipped_x.push_back(vertex.first);
-        clipped_y.push_back(vertex.second);
-    }
-}
-
-
-
-// Modified hough_transform function with line clipping using Sutherland-Hodgman algorithm
-void hough_transform(int height, int width, uint8_t *img, uint8_t *output){
-    auto channels = 3;
-    int max_rho = (int)std::sqrt(width * width + height * height);
-    int max_theta = 180;
-    int *hough_space = new int[max_rho * max_theta];
-    std::fill(hough_space, hough_space + max_rho * max_theta, 0);
-
-    for(int y = 0; y < height; y++){
-        for(int x = 0; x < width; x++){
-            if(img[y * width + x] < 128){
-                for(int theta = 0; theta < max_theta; theta++){
-                    float rho = x * std::cos(theta * M_PI / 180) + y * std::sin(theta * M_PI / 180);
+    // Binning for Hough Transform
+    for(int y = 0; y < height; y++) {
+        for(int x = 0; x < width; x++) {
+            if(img[y * width + x] > 0) { // Adjust threshold as needed
+                for(int t = 0; t < max_theta; t++) {
+                    double rho = x * std::cos(t * M_PI / 180) + y * std::sin(t * M_PI / 180);
                     int rho_idx = (int)rho + max_rho / 2;
                     if(rho_idx >= 0 && rho_idx < max_rho) {
-                        hough_space[rho_idx * max_theta + theta]++;
+                        hough_space[rho_idx * max_theta + t]++;
                     }
                 }
             }
         }
     }
 
-    int max_hough = *std::max_element(hough_space, hough_space + max_rho * max_theta);
-
-    // Copy the image into the output with the 3 channels
-    for(int i = 0; i < height; i++){
-        for(int j = 0; j < width; j++){
-            uint8_t pixel_value = img[i * width + j];
-            output[(i * width + j) * channels] = pixel_value; // Red channel
-            output[(i * width + j) * channels + 1] = pixel_value; // Green channel
-            output[(i * width + j) * channels + 2] = pixel_value; // Blue channel
-        }
-    }
-
-    for(int rho_idx = 0; rho_idx < max_rho; rho_idx++){
-        for(int theta = 0; theta < max_theta; theta++){
-            if(hough_space[rho_idx * max_theta + theta] > max_hough * 0.5){
-                float rho = rho_idx - max_rho / 2;
-                int x0 = 0, y0 = (int)(rho / std::sin(theta * M_PI / 180));
-                int x1 = width - 1, y1 = (int)((rho - (width - 1) * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
-                std::vector<int> clipped_x, clipped_y;
-                clipLineSutherlandHodgman(x0, y0, x1, y1, width, height, clipped_x, clipped_y);
-                for (size_t i = 0; i < clipped_x.size(); ++i) {
-                    int x = clipped_x[i];
-                    int y = clipped_y[i];
-                    if (y >= 0 && y < height) {
-                        output[(y * width + x) * channels] = 255;
-                        output[(y * width + x) * channels + 1] = 0;
-                        output[(y * width + x) * channels + 2] = 0;
-                    }
-                }
+    // Find lines in Hough space
+    std::vector<std::pair<int, int>> lines;
+    int threshold = (int)(255 * threshold_mult);
+    for(int rho_idx = 0; rho_idx < max_rho; rho_idx++) {
+        for(int theta = 0; theta < max_theta; theta++) {
+            if(hough_space[rho_idx * max_theta + theta] > threshold) { // Adjust threshold as needed
+                lines.push_back(std::make_pair(rho_idx, theta));
             }
         }
     }
 
-    delete[] hough_space;
+    // Draw lines onto output image
+    for(const auto& line : lines) {
+        int rho_idx = line.first;
+        int theta = line.second;
+        double rho = rho_idx - max_rho / 2.0;
+
+        for(int x = 0; x < width; x++) {
+            int y = (int)((rho - x * std::cos(theta * M_PI / 180)) / std::sin(theta * M_PI / 180));
+            if(y >= 0 && y < height) {
+                output[(y * width + x) * channels] = 255;
+                output[(y * width + x) * channels + 1] = 255;
+                output[(y * width + x) * channels + 2] = 0;
+            }
+        }
+    }
 }
-
-
 
 void measure_time(bool start, FILE* file_times, std::string name){
 	static std::chrono::system_clock::time_point start_time;
@@ -397,8 +323,8 @@ int main(int argc, char *argv[])
     
 	auto img_fname = argc>=2 ? argv[1] : "image.png";
 
-	printf("img_fname: %s\n", img_fname);
 	system("mkdir -p output");
+	system("rm -f ./output/*");
 	auto file_times = fopen("./output/times_Canny.txt", "a");
 	
 	uint8_t* rgb_image = stbi_load(img_fname, &width, &height, &bpp, 3);
@@ -413,7 +339,6 @@ int main(int argc, char *argv[])
 	measure_time(true, file_times, "convert_to_greyscale");
 	convert_to_greyscale(height, width, rgb_image, grey_image);
 	measure_time(false, file_times, "convert_to_greyscale");
-	stbi_image_free(rgb_image);
 
 // 	Apply Gaussian filtering
 // Choose the kernel size you want
@@ -503,7 +428,18 @@ int main(int argc, char *argv[])
 	uint8_t* pixel_classification;
     pixel_classification = (uint8_t*)malloc(width*height);
 
-	double_threshold(height, width, pixel_classification, suppr_mag);
+	float max_mag = 0.0;
+
+	// Find the maximum and minimum magnitude values
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			float mag = suppr_mag[i * width + j];
+			max_mag = std::max(max_mag, mag);
+			
+		}
+	}
+
+	double_threshold(height, width, pixel_classification, suppr_mag, max_mag);
 	measure_time(false, file_times, "double_threshold");
 
 	stbi_write_png("./output/4_thresholded.png", width, height, 1, pixel_classification, width);
@@ -554,18 +490,33 @@ int main(int argc, char *argv[])
 	stbi_write_png("./output/7_erosion.png", width, height, 1, erosion, width);
 
 
+	int max_rho = (int)std::sqrt(width * width + height * height);
+    int max_theta = 180;
+	auto channels = 3;
+    int *hough_space = new int[max_rho * max_theta](); // Initialize to 0
 	uint8_t* hough_output;
-	hough_output = (uint8_t*)malloc(width*height*3);
-
-	measure_time(true, file_times, "Hough Transform");
-	hough_transform(height, width, erosion, hough_output);
-	measure_time(false, file_times, "Hough Transform");
-
-	stbi_write_png("./output/8_hough_output.png", width, height, 3, hough_output, width);
-
-
+	hough_output = rgb_image;
 	
 
+
+	measure_time(true, file_times, "Hough Transform");
+	hough_transform(height, width, max_rho, max_theta, THRESHOLD_HOUGH_MULT, erosion, hough_space, hough_output, 3);
+	measure_time(false, file_times, "Hough Transform");
+
+	//print hough space
+
+	// for (int i=0 ; i< max_rho; i++){
+	// 	for (int j=0 ; j< max_theta; j++){
+	// 		printf("%d ", hough_space[i*max_rho + j]);
+	// 	}
+	// }
+
+
+	stbi_image_free(erosion);
+	
+
+	stbi_write_png("./output/8_hough_space.png", max_theta, max_rho, 1, hough_space, max_theta);
+	stbi_write_png("./output/8_hough_output.png", width, height, channels, hough_output, width*channels);
 
 
 

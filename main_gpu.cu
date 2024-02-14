@@ -8,6 +8,7 @@
 #include <cuda_runtime.h>
 #include <cfloat>
 #include <assert.h>
+#include <utility>
 
 
 #define cdpErrchk(ans) { cdpAssert((ans), __FILE__, __LINE__); }
@@ -41,15 +42,18 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 
 #define LAPLACIAN_GAUSSIAN 0
-#define GAUSSIAN_KERNEL_SIZE 5
-#define GAUSSIAN_SIGMA 1.4
-#define SHARED 1
+#define GAUSSIAN_KERNEL_SIZE 3
+#define GAUSSIAN_SIGMA 0.8
+#define SHARED 0
 #define TILED 0
+#define HYS_STACK 0
 
 
-#define MAX_THRESHOLD_MULT 0.2//*255
-#define MIN_THRESHOLD_MULT 0.01 //*255
+#define MAX_THRESHOLD_MULT 0.1//*255
+#define MIN_THRESHOLD_MULT 0.0001 //*255
 #define NON_MAX_SUPPR_THRESHOLD 1
+#define HOUGH_THRESHOLD_MULT 0.7
+
 
 __constant__ float sobel_h_constant[9] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
 __constant__ float sobel_v_constant[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
@@ -324,9 +328,9 @@ __global__ void non_maximum_suppression_non_interpolated(int height, int width, 
 			r = mag[(i+1)*width + j+1];
 		}
 
-		float mag_ij = NON_MAX_SUPPR_THRESHOLD*mag[i*width + j];
+		float mag_ij = mag[i*width + j];
 
-		if (mag_ij >= q && mag_ij >= r){
+		if (mag_ij >= q*NON_MAX_SUPPR_THRESHOLD && mag_ij >= r * NON_MAX_SUPPR_THRESHOLD){
 			suppr_mag[i*width + j] = mag_ij;
 		} else {
 			suppr_mag[i*width + j] = 0;
@@ -336,10 +340,11 @@ __global__ void non_maximum_suppression_non_interpolated(int height, int width, 
 
 }
 
-__global__ void float_threshold(int height, int width,  uint8_t *pixel_classification,  uint8_t *suppr_mag){
+__global__ void float_threshold(int height, int width,  uint8_t *pixel_classification,  uint8_t *suppr_mag, float max_mag){
 
-	float high_threshold = MAX_THRESHOLD_MULT*255;
-	float low_threshold = MIN_THRESHOLD_MULT*255;
+	float high_threshold = MAX_THRESHOLD_MULT*max_mag;
+	float low_threshold = MIN_THRESHOLD_MULT*max_mag;
+
 
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -487,6 +492,63 @@ if(i < height && j < width){
 }
 }
 
+
+
+__global__ void hough_transform(int height, int width, int max_rho, int max_theta, float threshold_mult, uint8_t* img, int* hough_space, uint8_t *output, int channels, int* lines){
+
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (i < height && j < width && img[i * width + j] > 0) {
+        for (int thetaIdx = 0; thetaIdx < max_theta; thetaIdx++) {
+            double theta = thetaIdx * M_PI / max_theta;
+            double rho = j * cos(theta) + i * sin(theta);
+            int rhoIdx = (int)(rho + max_rho / 2);
+
+            if (rhoIdx >= 0 && rhoIdx < max_rho) {
+                atomicAdd(&hough_space[rhoIdx * max_theta + thetaIdx], 1);
+            }
+        }
+    }
+
+    __syncthreads();
+
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+        int maxVote = 0;
+        for (int k = 0; k < max_rho; k++) {
+            for (int m = 0; m < max_theta; m++) {
+                int vote = hough_space[k * max_theta + m];
+                if (vote > maxVote) {
+                    maxVote = vote;
+                    lines[0] = k;
+                    lines[1] = m;
+                }
+            }
+        }
+    }
+
+    __syncthreads();
+
+    if (i < height && j < width) {
+        if (hough_space[lines[0] * max_theta + lines[1]] > 255 * threshold_mult) {
+            double rho = lines[0] - max_rho / 2.0;
+            double theta = lines[1] * M_PI / max_theta;
+
+            for (int xx = 0; xx < width; xx++) {
+                int yy = (int)((rho - xx * cos(theta)) / sin(theta));
+                if (yy >= 0 && yy < height) {
+                    output[(yy * width + xx) * channels] = 255;
+                    output[(yy * width + xx) * channels + 1] = 255;
+                    output[(yy * width + xx) * channels + 2] = 0;
+                }
+            }
+        }
+    }
+}
+
+
+//UTILITY
+
 float* get_gaussian_filter (int kernel_size, float sigma){
 
 	kernel_size = kernel_size%2 == 0 ? kernel_size-1 : kernel_size;
@@ -588,7 +650,7 @@ int main(int argc, char *argv[])
     cudaMemcpy(rgb_image_d, rgb_image, width*height*3, cudaMemcpyHostToDevice);
 
 	threads = dim3(blocksize, blocksize);
-    grid = dim3((width + threads.x - 1) / threads.x , (height + threads.y - 1) / threads.y);
+    grid = dim3((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y);
     printf("CUDA kernel launch with %d blocks of %d threads\n", grid.x * grid.y, threads.x * threads.y);
 
 
@@ -608,7 +670,6 @@ int main(int argc, char *argv[])
 	cudaMemcpy(grey_image, grey_image_d, width*height, cudaMemcpyDeviceToHost);
 
 	stbi_image_free(rgb_image);
-	cudaFree(rgb_image_d);
 	stbi_write_png("./output_GPU/0_image_grey.png", width, height, 1, grey_image, width);
 
 	// Initialize timing
@@ -772,6 +833,7 @@ int main(int argc, char *argv[])
 	uint8_t* suppr_mag_d;
 	suppr_mag = (uint8_t*)malloc(width*height);
 	cudaMalloc(&suppr_mag_d, width*height);
+	cudaMemset(suppr_mag_d, 0, width*height);
 
 	non_maximum_suppression_non_interpolated<<<grid, threads>>>(height, width, suppr_mag_d, magnitude_d, gradient_direction_d);
 
@@ -793,7 +855,18 @@ int main(int argc, char *argv[])
 	pixel_classification = (uint8_t*)malloc(width*height);
 	cudaMalloc(&pixel_classification_d, width*height*sizeof(uint8_t));
 
-	float_threshold<<<grid, threads>>>(height, width, pixel_classification_d, suppr_mag_d);
+	float max_mag = 0.0;
+
+	// Find the maximum and minimum magnitude values
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			float mag = suppr_mag[i * width + j];
+			max_mag = std::max(max_mag, mag);
+			
+		}
+	}
+
+	float_threshold<<<grid, threads>>>(height, width, pixel_classification_d, suppr_mag_d, max_mag);
 
 	cudaMemcpy(pixel_classification, pixel_classification_d, width*height, cudaMemcpyDeviceToHost);
 
@@ -810,8 +883,11 @@ int main(int argc, char *argv[])
 	
 	cudaEventRecord(start, NULL);
 
-	hysteresis_stack<<<grid, threads, 47 * 1024>>>(height, width, pixel_classification_d);
-	//hysteresis<<<grid, threads>>>(height, width, pixel_classification_d);
+	#if STACK
+		hysteresis_stack<<<grid, threads, 47 * 1024>>>(height, width, pixel_classification_d);
+	#else
+		hysteresis<<<grid, threads>>>(height, width, pixel_classification_d);
+	#endif
 
 	cudaMemcpy(pixel_classification, pixel_classification_d, width*height, cudaMemcpyDeviceToHost);
 
@@ -820,15 +896,13 @@ int main(int argc, char *argv[])
   	cudaEventElapsedTime(&msecTotal, start, stop);
 
 	printf("\t Hysteresis time: %f (ms)\n", msecTotal);
-
+	
 
 	stbi_write_png("./output_GPU/5_hysteresis.png", width, height, 1, pixel_classification, width);
 
 	// // Final timing
 
-	cudaEventRecord(stop_total, NULL);
-  	cudaEventSynchronize(stop_total);
-  	cudaEventElapsedTime(&msecTotal, start_total, stop_total);
+	
 
 	printf("\t Total processing time: %f (ms)\n", msecTotal);
 
@@ -847,22 +921,23 @@ int main(int argc, char *argv[])
 	int dilation_kernel_size = 3;
 	float dilation_kernel[dilation_kernel_size * dilation_kernel_size] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 	float* dilation_kernel_d;
+
+	cudaEventRecord(start, NULL);
+	
 	cudaMalloc(&dilation_kernel_d, dilation_kernel_size * dilation_kernel_size * sizeof(float));
 	cudaMemcpy(dilation_kernel_d, dilation_kernel, dilation_kernel_size * dilation_kernel_size * sizeof(float), cudaMemcpyHostToDevice);
 
-
-	printf("grids: %d, %d\n", grid.x, grid.y);
-	printf("threads: %d, %d\n", threads.x, threads.y);
+	
+	printf("\t Dilation time: %f (ms)\n", msecTotal);
+	
 	apply_dilation<<<grid, threads, 0>>>(dilation_kernel_size, height, width, dilation_d, pixel_classification_d, dilation_kernel_d);
-
 
 	cudaMemcpy(dilation, dilation_d, width*height, cudaMemcpyDeviceToHost);
 
-	// for (int i = 0; i < width*height; i++){
-	// 		if(dilation[i] != 0)
-	// 		printf("i = %d, dilation = %d\n", i, dilation[i]);
+	cudaEventRecord(stop, NULL);
+  	cudaEventSynchronize(stop);
+  	cudaEventElapsedTime(&msecTotal, start, stop);
 
-	// }
 
 	stbi_write_png("./output_GPU/6_dilation.png", width, height, 1, dilation, width);
 
@@ -871,12 +946,15 @@ int main(int argc, char *argv[])
 	uint8_t* erosion;
 	uint8_t* erosion_d;
 	erosion = (uint8_t*)malloc(width*height);
-	cudaMalloc(&erosion_d, width*height);
+	
 
 	//erosion kernel
 	int erosion_kernel_size = 3;
 	float erosion_kernel[erosion_kernel_size*erosion_kernel_size] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 	float* erosion_kernel_d;
+	
+	cudaEventRecord(start, NULL);
+	cudaMalloc(&erosion_d, width*height);
 	cudaMalloc(&erosion_kernel_d, erosion_kernel_size*erosion_kernel_size*sizeof(float));
 
 	cudaMemcpy(erosion_kernel_d, erosion_kernel, erosion_kernel_size*erosion_kernel_size*sizeof(float), cudaMemcpyHostToDevice);
@@ -886,6 +964,68 @@ int main(int argc, char *argv[])
 
 	cudaMemcpy(erosion, erosion_d, width*height, cudaMemcpyDeviceToHost);
 
+	cudaEventRecord(stop, NULL);
+  	cudaEventSynchronize(stop);
+  	cudaEventElapsedTime(&msecTotal, start, stop);
+
 	stbi_write_png("./output_GPU/7_erosion.png", width, height, 1, erosion, width);
+
+	//HOUGH TRANSFORM
+
+
+	int max_rho = (int)sqrt((width*width) + (height*height));
+	int max_theta = 180;
+	int* hough_space;
+	int* hough_space_d;
+	auto channels = 3;
+	uint8_t* hough_output;
+	uint8_t* hough_output_d;
+	int* lines_d;
+    hough_space = new int[max_rho * max_theta](); // Initialize to 0
+
+
+	// for (int i=0 ; i< max_rho; i++){
+	// 	for (int j=0 ; j< max_theta; j++){
+	// 		printf("%d ", hough_space[i*max_rho + j]);
+	// 	}
+	// } 
+	
+	cudaMalloc(&hough_space_d, max_rho*max_theta*sizeof(int));
+	cudaMemset(hough_space_d, 0, max_rho*max_theta*sizeof(int));
+	hough_output = (uint8_t*)malloc(width*height*channels);
+	hough_output_d = rgb_image_d;
+
+	cudaMalloc(&lines_d, 2*sizeof(int)*max_rho*max_theta);
+	cudaMemset(lines_d, 0, 2*sizeof(int)*max_rho*max_theta);
+
+	cudaEventRecord(start, NULL);
+	
+
+	hough_transform<<<grid, threads>>>(height, width, max_rho, max_theta, HOUGH_THRESHOLD_MULT, erosion_d, hough_space_d, hough_output_d, channels, lines_d);
+
+	cudaMemcpy(hough_space, hough_space_d, max_rho*max_theta*sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(hough_output, hough_output_d, width*height*channels, cudaMemcpyDeviceToHost);
+
+	cudaEventRecord(stop, NULL);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&msecTotal, start, stop);
+
+	printf("\t Hough transform time: %f (ms)\n", msecTotal);
+
+	// for (int i=0 ; i< max_rho; i++){
+	// 	for (int j=0 ; j< max_theta; j++){
+	// 		printf("%d ", hough_space[i*max_rho + j]);
+	// 	}
+	// } 
+
+	stbi_write_png("./output_GPU/8_hough_space.png", max_theta, max_rho, 1, hough_space, max_theta);
+	stbi_write_png("./output_GPU/8_hough_output.png", width, height, channels, hough_output, width*channels);
+
+	cudaEventRecord(stop_total, NULL);
+  	cudaEventSynchronize(stop_total);
+  	cudaEventElapsedTime(&msecTotal, start_total, stop_total);
+
+
+
     return 0;
 }
