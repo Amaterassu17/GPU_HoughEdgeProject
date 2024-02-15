@@ -12,7 +12,7 @@ cd bin
 #     ./GPU_HoughEdgeProject "../triangle.png"
 # done
 
-./GPU_HoughEdgeProject "../triangle.png"
+./GPU_HoughEdgeProject "../image.png"
 
 
 # ./GPU_HoughEdgeProject "../triangle.png"

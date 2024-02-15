@@ -1,8 +1,18 @@
-# GPU_HoughEdgeProject
-GPU Project @ ENSIMAG 2023/2024
+# GPU Edge Detection and Hough Transform
 
-# Timeline
+## To compile main.cpp:
 
-- Edge detection
-    - How do we do edge detection?
-        - We need to Look for edges in an image and 
+- Put as working directory this one and type in a terminal ./buildfile.sh
+- The image and timing results will be available in ./bin/output/.
+
+## To compile main_gpu.cu
+
+- Put as working directory this one and type in a terminal ./buildfile_GPU.sh
+- The image and timing results will be available in ./output_GPU/.
+
+## To change test image
+
+- Change the name in the respective buildfile and re-execute the corresponding step aforementioned.
+
+
+Made by Angelo Gennuso and Laura Jehn

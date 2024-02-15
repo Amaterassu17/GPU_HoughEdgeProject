@@ -452,8 +452,6 @@ int main(int argc, char *argv[])
     std::cout<<"image: "<<img_fname<<std::endl;
 	std::cout<<width<<" "<<height<<std::endl;
 
-	auto start_total = std::chrono::system_clock::now();
-
 	// Convert to greyscale
     uint8_t* grey_image;
     grey_image = (uint8_t*)malloc(width*height);
@@ -572,12 +570,6 @@ int main(int argc, char *argv[])
 
 	stbi_write_png("./output/5_hysteresis.png", width, height, 1, pixel_classification, width);
 
-	// Total timing
-
-	end_total = std::chrono::system_clock::now();
-	std::chrono::duration<double> duration = end_total - start_total;
-	fprintf(file_times, "%s: %f \n", "total", duration.count()*1000);	
-
 	uint8_t* dilation;
 	dilation = (uint8_t*)malloc(width*height);
 
@@ -632,7 +624,7 @@ int main(int argc, char *argv[])
 	stbi_write_png("./output/8_hough_space.png", max_theta, max_rho, 1, hough_space, max_theta);
 	stbi_write_png("./output/8_hough_output.png", width, height, channels, hough_output, width*channels);
 
-	auto end_total = std::chrono::system_clock::now();
+	end_total = std::chrono::system_clock::now();
 	std::chrono::duration<double> duration = end_total - start_total;
 	fprintf(file_times, "%f\n",duration.count());
 	
