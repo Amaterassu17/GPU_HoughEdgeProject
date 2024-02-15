@@ -17,10 +17,14 @@
 #define GAUSSIAN_KERNEL_SIZE 5
 #define GAUSSIAN_SIGMA 2.0
 
-#define MAX_THRESHOLD_MULT 0.3
-#define MIN_THRESHOLD_MULT 0.01
-#define NON_MAX_SUPPR_THRESHOLD 0.5
+#define MAX_THRESHOLD_MULT 0.1
+#define MIN_THRESHOLD_MULT 0.001
+#define NON_MAX_SUPPR_THRESHOLD 0.6
 #define THRESHOLD_HOUGH_MULT 0.7
+
+/**
+ * @brief Apply a filter to an image
+*/
 
 void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
 {
@@ -42,6 +46,15 @@ void apply_filter(int kernel_size, int height, int width, uint8_t *output, uint8
  	}
 }
 
+/**
+ * @brief Convert an RGB image to greyscale
+ * 
+ * @param height The height of the image
+ * @param width The width of the image
+ * @param img The input image
+ * @param grey_img The output greyscale image
+ */
+
 
 void convert_to_greyscale(int height, int width, uint8_t *img, uint8_t *grey_img)
 {
@@ -60,6 +73,17 @@ void convert_to_greyscale(int height, int width, uint8_t *img, uint8_t *grey_img
 	}
 }
 
+/**
+ * @brief Compute the magnitude and gradient of the image
+ * 
+ * @param height The height of the image
+ * @param width The width of the image
+ * @param Ix The horizontal gradient
+ * @param Iy The vertical gradient
+ * @param mag The magnitude of the gradient
+ * @param grad The gradient direction
+ */
+
 void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t *Iy, uint8_t *mag, float *grad){
 	
 	for(int i = 1; i < height-1; i++)
@@ -74,6 +98,16 @@ void compute_magnitude_and_gradient(int height, int width, uint8_t *Ix, uint8_t 
      	}
  	}
 }
+
+/**
+ * @brief Apply non-maximum suppression to the image
+ * 
+ * @param height The height of the image
+ * @param width The width of the image
+ * @param suppr_mag The output image
+ * @param mag The magnitude of the gradient
+ * @param grad The gradient direction
+ */
 
 void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t *mag, float* grad){
 
@@ -128,6 +162,16 @@ void non_maximum_suppression(int height, int width, uint8_t *suppr_mag, uint8_t 
 	}
 }
 
+/**
+ * @brief Apply double thresholding to the image
+ * 
+ * @param height The height of the image
+ * @param width The width of the image
+ * @param pixel_classification The output image
+ * @param suppr_mag The magnitude of the gradient
+ * @param max_mag The maximum magnitude
+ */
+
 void double_threshold(int height, int width, uint8_t *pixel_classification, uint8_t *suppr_mag, float max_mag) {
 	
 
@@ -154,6 +198,14 @@ void double_threshold(int height, int width, uint8_t *pixel_classification, uint
 	}
 }
 
+/**
+ * @brief Apply hysteresis to the image
+ * 
+ * @param height The height of the image
+ * @param width The width of the image
+ * @param pixel_classification The output image
+ */
+
 void hysteresis(int height, int width, uint8_t *pixel_classification){
 
 	for(int i = 1; i < height-1; i++)
@@ -173,6 +225,18 @@ void hysteresis(int height, int width, uint8_t *pixel_classification){
  	}
 }
 
+/**
+ * @brief Apply dilation to the image
+ * 
+ * @param kernel_size The size of the kernel
+ * @param height The height of the image
+ * @param width The width of the image
+ * @param output The output image
+ * @param input The input image
+ * @param kernel The kernel
+ 
+*/
+
 void apply_dilation(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
 {
 for (int i = 1; i < height - 1; i++) {
@@ -191,6 +255,17 @@ for (int i = 1; i < height - 1; i++) {
 }
 
 }
+
+/**
+ * @brief Apply erosion to the image
+ * 
+ * @param kernel_size The size of the kernel
+ * @param height The height of the image
+ * @param width The width of the image
+ * @param output The output image
+ * @param input The input image
+ * @param kernel The kernel
+ */
 
 void apply_erosion(int kernel_size, int height, int width, uint8_t *output, uint8_t *input, float *kernel)
 {
@@ -217,6 +292,20 @@ struct Line {
     int rho;
     int theta;
 };
+
+/**
+ * @brief Apply Hough transform to the image
+ * 
+ * @param height The height of the image
+ * @param width The width of the image
+ * @param max_rho The maximum value of rho
+ * @param max_theta The maximum value of theta
+ * @param threshold_mult The threshold multiplier
+ * @param img The input image
+ * @param hough_space The Hough space
+ * @param output The output image
+ * @param channels The number of channels
+ */
 
 void hough_transform(int height, int width, int max_rho, int max_theta, float threshold_mult, uint8_t* img, int* hough_space, uint8_t *output, int channels) {
     double center_x = width / 2.0;
@@ -265,6 +354,16 @@ void hough_transform(int height, int width, int max_rho, int max_theta, float th
     }
 }
 
+//UTILITY
+
+/**
+ * @brief Measure the time of a function
+ * 
+ * @param start Whether to start or stop the timer
+ * @param file_times The file to write the time to
+ * @param name The name of the function
+ */
+
 void measure_time(bool start, FILE* file_times, std::string name){
 	static std::chrono::system_clock::time_point start_time;
 	static std::chrono::system_clock::time_point end_time;
@@ -274,9 +373,17 @@ void measure_time(bool start, FILE* file_times, std::string name){
 	} else {
 		end_time = std::chrono::system_clock::now();
 		std::chrono::duration<double> duration = end_time - start_time;
-		fprintf(file_times, "%s: %f \n", name.c_str(), duration.count());
+		fprintf(file_times, "%f,",duration.count());
 	}
 }
+
+/**
+ * @brief Get a Gaussian filter
+ * 
+ * @param kernel_size The size of the kernel
+ * @param sigma The standard deviation
+ * @return The Gaussian filter
+ */
 
 float* get_gaussian_filter (int kernel_size, float sigma){
 	float* gaussian_filter = (float*)malloc(kernel_size*kernel_size*sizeof(float));
@@ -295,6 +402,14 @@ float* get_gaussian_filter (int kernel_size, float sigma){
 	return gaussian_filter;
 
 }
+
+/**
+ * @brief Get a Gaussian Laplacian filter
+ * 
+ * @param kernel_size The size of the kernel
+ * @param sigma The standard deviation
+ * @return The Gaussian Laplacian filter
+ */
 
 float* get_gaussian_laplacian_filter (int kernel_size, float sigma){
 	float* gaussian_filter = (float*)malloc(kernel_size*kernel_size*sizeof(float));
@@ -326,13 +441,20 @@ int main(int argc, char *argv[])
 	auto img_fname = argc>=2 ? argv[1] : "image.png";
 
 	system("mkdir -p output");
-	system("rm -f ./output/*");
-	auto file_times = fopen("./output/times_Canny.txt", "a");
+	system("rm -rf ./output/images");
+	system("mkdir -p ./output/images");
+
+	auto file_times = fopen("./output/times_Canny.csv", "a");
+	//write header times on csv
+	fprintf(file_times, "convert_to_greyscale,apply_gaussian_filter,apply_sobel_filters,compute_magnitude_and_gradient,non_maximum_suppression,double_threshold,hysteresis,dilation,erosion,Hough Transform, TotalTime\n");
+
 	
 	uint8_t* rgb_image = stbi_load(img_fname, &width, &height, &bpp, 3);
 
     std::cout<<"image: "<<img_fname<<std::endl;
 	std::cout<<width<<" "<<height<<std::endl;
+
+	auto start_total = std::chrono::system_clock::now();
 
 	// Convert to greyscale
     uint8_t* grey_image;
@@ -492,14 +614,6 @@ int main(int argc, char *argv[])
 	hough_transform(height, width, max_rho, max_theta, THRESHOLD_HOUGH_MULT, erosion, hough_space, hough_output, 3);
 	measure_time(false, file_times, "Hough Transform");
 
-	//print hough space
-
-	// for (int i=0 ; i< max_rho; i++){
-	// 	for (int j=0 ; j< max_theta; j++){
-	// 		printf("%d ", hough_space[i*max_rho + j]);
-	// 	}
-	// }
-
 
 	stbi_image_free(erosion);
 	
@@ -507,7 +621,10 @@ int main(int argc, char *argv[])
 	stbi_write_png("./output/8_hough_space.png", max_theta, max_rho, 1, hough_space, max_theta);
 	stbi_write_png("./output/8_hough_output.png", width, height, channels, hough_output, width*channels);
 
-
+	auto end_total = std::chrono::system_clock::now();
+	std::chrono::duration<double> duration = end_total - start_total;
+	fprintf(file_times, "%f\n",duration.count());
+	
 
     return 0;
 }
