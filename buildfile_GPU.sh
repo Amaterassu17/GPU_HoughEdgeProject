@@ -8,5 +8,5 @@ rm -rf ./output_GPU
 #     ./main_gpu triangle.png
 # done
 
-./main_gpu triangle.png
+./main_gpu image.png
 

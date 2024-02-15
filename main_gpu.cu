@@ -41,17 +41,17 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 #define TILE_SIZE 16
 
 
-#define LAPLACIAN_GAUSSIAN 1
+#define LAPLACIAN_GAUSSIAN 0
 #define GAUSSIAN_KERNEL_SIZE 5
 #define GAUSSIAN_SIGMA 2.0
-#define SHARED 1
+#define SHARED 0
 #define TILED 0
 #define HYS_STACK 1
 
 
-#define MAX_THRESHOLD_MULT 0.1//*255
+#define MAX_THRESHOLD_MULT 0.4//*255
 #define MIN_THRESHOLD_MULT 0.005 //*255
-#define NON_MAX_SUPPR_THRESHOLD 0.6
+#define NON_MAX_SUPPR_THRESHOLD 0.8
 #define HOUGH_THRESHOLD_MULT 0.7
 
 
