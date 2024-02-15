@@ -14,5 +14,6 @@ cd bin
 
 ./GPU_HoughEdgeProject "../triangle.png"
 
+
 # ./GPU_HoughEdgeProject "../triangle.png"
 cd ..

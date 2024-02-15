@@ -44,7 +44,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 #define LAPLACIAN_GAUSSIAN 1
 #define GAUSSIAN_KERNEL_SIZE 5
 #define GAUSSIAN_SIGMA 2.0
-#define SHARED 0
+#define SHARED 1
 #define TILED 0
 #define HYS_STACK 1
 
